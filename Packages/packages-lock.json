@@ -152,6 +152,15 @@
       "dependencies": {},
       "url": "https://packages.unity.cn"
     },
+    "com.unity.postprocessing": {
+      "version": "3.3.0",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0"
+      },
+      "url": "https://packages.unity.cn"
+    },
     "com.unity.render-pipelines.core": {
       "version": "15.0.6",
       "depth": 1,
@@ -177,7 +186,7 @@
     },
     "com.unity.searcher": {
       "version": "4.9.2",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.cn"
@@ -191,7 +200,7 @@
     },
     "com.unity.shadergraph": {
       "version": "15.0.6",
-      "depth": 1,
+      "depth": 0,
       "source": "builtin",
       "dependencies": {
         "com.unity.render-pipelines.core": "15.0.6",
@@ -247,6 +256,15 @@
       "dependencies": {
         "com.unity.modules.ui": "1.0.0",
         "com.unity.modules.imgui": "1.0.0"
+      }
+    },
+    "com.unity.visualeffectgraph": {
+      "version": "15.0.6",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.shadergraph": "15.0.6",
+        "com.unity.render-pipelines.core": "15.0.6"
       }
     },
     "com.unity.visualscripting": {

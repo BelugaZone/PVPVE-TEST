@@ -1449,6 +1449,8 @@ GameObject:
   - component: {fileID: 985194825359914505}
   - component: {fileID: 7564065596191171164}
   - component: {fileID: 699908699066086975}
+  - component: {fileID: 8538491319857884112}
+  - component: {fileID: 5410349692279338040}
   m_Layer: 11
   m_Name: Enemy_Range
   m_TagString: Untagged
@@ -1473,7 +1475,7 @@ Transform:
   - {fileID: 3964697166795323154}
   - {fileID: 9099338632411412722}
   m_Father: {fileID: 0}
-  m_RootOrder: -2
+  m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1522754735549448092
 MonoBehaviour:
@@ -1498,7 +1500,12 @@ MonoBehaviour:
     m_Bits: 0
   healthPoints: 2
   idleTime: 3
-  aggresionRange: 15
+  aggresionRange: 10.7
+  chaseRange: 14.6
+  fovAngle: 90
+  whatIsObstacle:
+    serializedVersion: 2
+    m_Bits: 0
   walkSpeed: 1.5
   runSpeed: 3
   turnSpeed: 5
@@ -1506,6 +1513,7 @@ MonoBehaviour:
   - {fileID: 7086963790007380954}
   - {fileID: 5673001054955848948}
   - {fileID: 2103080116678446538}
+  isDead: 0
   coverPerk: 0
   unstoppablePerk: 0
   grenadePerk: 0
@@ -1530,7 +1538,6 @@ MonoBehaviour:
   slowAim: 4
   fastAim: 20
   aim: {fileID: 9099338632411412722}
-  playersBody: {fileID: 0}
   whatToIgnore:
     serializedVersion: 2
     m_Bits: 2048
@@ -1741,6 +1748,47 @@ MonoBehaviour:
   _interpolation: 2
   _clientAuthoritative: 1
   _sendToOwner: 0
+--- !u!135 &8538491319857884112
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1316571440960610406}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 0
+  serializedVersion: 3
+  m_Radius: 0.8
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &5410349692279338040
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1316571440960610406}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bae88e1341b494e4aafa4ac3799c618c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 985194825359914505}
+  _networkObjectCache: {fileID: 0}
+  possibleLoot:
+  - itemId: Shotgun G7
+    count: 1
+    dropChance: 1
+  itemRegistry: {fileID: 11400000, guid: 8519b60277f60dc4e9c76afafbc58cc2, type: 2}
 --- !u!1 &1416550309579397773
 GameObject:
   m_ObjectHideFlags: 0

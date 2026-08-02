@@ -6,11 +6,15 @@ public class Player_AnimationEvents : MonoBehaviour
 {
     private Player_WeaponVisuals visualController;
     private Player_WeaponController weaponController;
+    private Player_Movement movementController;
+    private Animator animator;
 
-    private void Start()
+    private void Awake()
     {
         visualController = GetComponentInParent<Player_WeaponVisuals>();
         weaponController = GetComponentInParent<Player_WeaponController>();
+        movementController = GetComponentInParent<Player_Movement>();
+        animator = GetComponent<Animator>();
     }
 
     public void ReloadIsOver()
@@ -28,8 +32,9 @@ public class Player_AnimationEvents : MonoBehaviour
         visualController.MaximizeLeftHandWeight();
     }
 
-    public void WeaponEquipingIsOver()
+public void WeaponEquipingIsOver()
     {
+        Debug.Log("[Grenade] WeaponEquipingIsOver -> SetWeaponReady(true)");
         weaponController.SetWeaponReady(true);
     }
 
@@ -44,6 +49,12 @@ public class Player_AnimationEvents : MonoBehaviour
     public void FinishMeleeAttackCheck()
     {
         weaponController.EnableMeleeAttackCheck(false);
+    }
+
+    // --- Grenade Throw Event ---
+    public void ThrowGrenadeTrigger()
+    {
+        weaponController.SpawnGrenade();
     }
 
     public void StartManualMovement()

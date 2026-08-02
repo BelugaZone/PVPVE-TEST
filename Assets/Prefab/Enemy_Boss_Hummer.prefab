@@ -12958,6 +12958,8 @@ GameObject:
   - component: {fileID: 3933877884593770579}
   - component: {fileID: -1643233759100662153}
   - component: {fileID: 6438667625746592940}
+  - component: {fileID: 8933447070962762123}
+  - component: {fileID: 1558651288387007733}
   m_Layer: 11
   m_Name: Enemy_Boss_Hummer
   m_TagString: Untagged
@@ -12982,7 +12984,7 @@ Transform:
   - {fileID: 7736342475346190992}
   - {fileID: 6233873580610967438}
   m_Father: {fileID: 0}
-  m_RootOrder: -2
+  m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!195 &4022693558791645526
 NavMeshAgent:
@@ -13030,6 +13032,11 @@ MonoBehaviour:
   healthPoints: 5
   idleTime: 3
   aggresionRange: 15
+  chaseRange: 15
+  fovAngle: 90
+  whatIsObstacle:
+    serializedVersion: 2
+    m_Bits: 0
   walkSpeed: 1.25
   runSpeed: 4
   turnSpeed: 8
@@ -13037,6 +13044,7 @@ MonoBehaviour:
   - {fileID: 3142938418775484685}
   - {fileID: 4219087019665420567}
   - {fileID: 2097656858466747313}
+  isDead: 0
   bossWeaponType: 1
   actionCooldown: 0.5
   attackRange: 1.6
@@ -13237,6 +13245,44 @@ MonoBehaviour:
   _interpolation: 2
   _clientAuthoritative: 1
   _sendToOwner: 0
+--- !u!65 &8933447070962762123
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5522898272314983028}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1, y: 1, z: 1}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &1558651288387007733
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5522898272314983028}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bae88e1341b494e4aafa4ac3799c618c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 3933877884593770579}
+  _networkObjectCache: {fileID: 0}
+  possibleLoot: []
+  itemRegistry: {fileID: 11400000, guid: 8519b60277f60dc4e9c76afafbc58cc2, type: 2}
 --- !u!1 &5552655481784955523
 GameObject:
   m_ObjectHideFlags: 0

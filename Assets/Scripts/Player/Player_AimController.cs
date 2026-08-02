@@ -13,7 +13,7 @@ public class Player_AimController : NetworkBehaviour
     [Header("Aim control")]
     [SerializeField] private Transform aim;
 
-    [SerializeField] private bool isAimingPrecisly;
+    public bool isAimingPrecisly;
     [SerializeField] private bool isLockingToTarget;
 
     [Header("Camera control")]
@@ -31,6 +31,8 @@ public class Player_AimController : NetworkBehaviour
 
     private Vector2 mouseInput;
     private RaycastHit lastKnownMouseHit;
+    
+    private Texture2D crosshairTexture;
 
     private void Awake()
     {
@@ -43,6 +45,44 @@ public class Player_AimController : NetworkBehaviour
         {
             cameraTarget = new GameObject("CameraTarget_" + gameObject.name).transform;
         }
+        
+        // Ensure player and enemy layers are included in aim raycasts
+        int playerLayer = LayerMask.NameToLayer("Player");
+        if (playerLayer != -1) aimLayerMask |= (1 << playerLayer);
+        
+        int enemyLayer = LayerMask.NameToLayer("Enemy");
+        if (enemyLayer != -1) aimLayerMask |= (1 << enemyLayer);
+
+        CreateCrosshairTexture();
+    }
+    
+    private void CreateCrosshairTexture()
+    {
+        int size = 32;
+        crosshairTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        Color transparent = new Color(0, 0, 0, 0);
+        Color white = Color.white;
+        
+        for (int i = 0; i < size; i++)
+            for (int j = 0; j < size; j++)
+                crosshairTexture.SetPixel(i, j, transparent);
+
+        int center = size / 2;
+        int length = 8;
+        int thickness = 2;
+        
+        for (int i = center - length; i <= center + length; i++)
+        {
+            for (int j = center - thickness / 2; j <= center + thickness / 2; j++)
+            {
+                if (i >= 0 && i < size && j >= 0 && j < size)
+                {
+                    crosshairTexture.SetPixel(i, j, white);
+                    crosshairTexture.SetPixel(j, i, white);
+                }
+            }
+        }
+        crosshairTexture.Apply();
     }
 
     private void Start()
@@ -78,8 +118,16 @@ public class Player_AimController : NetworkBehaviour
         if (player.health.isDead.Value)
             return;
 
-        if(Input.GetKeyDown(KeyCode.P))
-            isAimingPrecisly = !isAimingPrecisly;
+        bool wasAiming = isAimingPrecisly;
+        isAimingPrecisly = Input.GetMouseButton(1);
+        
+        if (isAimingPrecisly != wasAiming)
+        {
+            if (isAimingPrecisly)
+                Cursor.SetCursor(crosshairTexture, new Vector2(16, 16), CursorMode.Auto);
+            else
+                Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+        }
 
         if(Input.GetKeyDown(KeyCode.L))
             isLockingToTarget = !isLockingToTarget;
@@ -187,15 +235,48 @@ public class Player_AimController : NetworkBehaviour
 
     #region Camera Region
 
+    private float shakeTimer;
+    private float shakeIntensity;
+    private Vector3 shakeOffset;
+
+    public void ShakeCamera(float intensity, float duration)
+    {
+        shakeIntensity = intensity;
+        shakeTimer = duration;
+    }
+
     private void UpdateCameraPosition()
     {
-        cameraTarget.position =
-                    Vector3.Lerp(cameraTarget.position, DesieredCameraPosition(), cameraSensetivity * Time.deltaTime);
+        Vector3 basePos = DesieredCameraPosition();
+        Vector3 targetLerped = Vector3.Lerp(cameraTarget.position - shakeOffset, basePos, cameraSensetivity * Time.deltaTime);
+
+        shakeOffset = Vector3.zero;
+        if (shakeTimer > 0)
+        {
+            shakeOffset = UnityEngine.Random.insideUnitSphere * shakeIntensity;
+            // keep it strictly 2D/3D depending on needs, but insideUnitSphere is fine
+            shakeOffset.y = 0; // usually don't shake height too much in top-down
+            shakeTimer -= Time.deltaTime;
+        }
+
+        cameraTarget.position = targetLerped + shakeOffset;
     }
 
     private Vector3 DesieredCameraPosition()
     {
         float actualMaxCameraDistance = player.movement.moveInput.y < -.5f ? minCameraDistance : maxCameraDistance;
+
+        if (isAimingPrecisly && player.weapon != null)
+        {
+            Weapon currentWeapon = player.weapon.CurrentWeapon();
+            if (currentWeapon != null && currentWeapon.weaponData != null)
+            {
+                if (currentWeapon.weaponData.weaponType == WeaponType.Rifle || currentWeapon.weaponData.weaponName == "weap_rifle")
+                {
+                    actualMaxCameraDistance = 20f; // Massively increase FOV drag range for sniper
+                }
+            }
+        }
 
         Vector3 desiredCameraPosition = GetMouseHitInfo().point;
         Vector3 aimDirection = (desiredCameraPosition - transform.position).normalized;

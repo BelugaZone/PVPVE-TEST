@@ -24,7 +24,8 @@ public class AbilityState_Boss : EnemyState
     {
         base.Update();
 
-        enemy.FaceTarget(enemy.player.position);
+        if (enemy.player != null)
+            enemy.FaceTarget(enemy.player.position);
 
         if (ShouldDisableFlamethrower())
             DisableFlamethrower();

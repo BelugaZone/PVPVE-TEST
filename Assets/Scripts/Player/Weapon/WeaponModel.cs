@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 public enum EquipType { SideEquipAnimation, BackEquipAnimation };
-public enum HoldType { None = 0, CommonHold = 1, LowHold = 2, HighHold = 3, MeleeHold = 4 };
+public enum HoldType { None = 0, CommonHold = 1, LowHold = 2, HighHold = 3, MeleeHold = 4, GrenadeHold = 5 };
 
 
 public class WeaponModel : MonoBehaviour

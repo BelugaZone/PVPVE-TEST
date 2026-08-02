@@ -26,11 +26,18 @@ public class Player_WeaponController : NetworkBehaviour
 
     [Header("Inventory")]
 
-    [SerializeField] private int maxSlots = 3;
+    [SerializeField] private int maxSlots = 4;
     [SerializeField] private List<Weapon> weaponSlots;
 
     [SerializeField] private GameObject weaponPickupPrefab;
     [SerializeField] private Weapon_Data defaultMeleeWeaponData;
+
+    [Header("Grenade")]
+    [SerializeField] private Weapon_Data defaultGrenadeWeaponData;
+    [SerializeField] private GameObject grenadePrefab;          // Player_Grenade prefab (Rigidbody + Enemy_Grenade)
+    [SerializeField] private float grenadeTimeToTarget = 1.2f;
+    [SerializeField] private float grenadeCountdown = 0.2f;     // fuse after landing
+    [SerializeField] private float grenadeImpactPower = 500f;
 
     [Header("Melee Hit Detection")]
     public GameObject meleeAttackFx;
@@ -38,9 +45,20 @@ public class Player_WeaponController : NetworkBehaviour
     private bool isMeleeAttackReady;
     private HashSet<NetworkObject> alreadyHitEnemies = new HashSet<NetworkObject>();
 
-    private void Start()
+    private void Awake()
     {
         player = GetComponent<Player>();
+        
+        if (weaponSlots == null) weaponSlots = new List<Weapon>();
+        if (maxSlots < 4) maxSlots = 4;
+        while (weaponSlots.Count < maxSlots) 
+        {
+            weaponSlots.Add(null);
+        }
+    }
+
+    private void Start()
+    {
         AssignInputEvents();
 
         // Ensure both Enemy and Player layers are included for PvP melee
@@ -48,8 +66,6 @@ public class Player_WeaponController : NetworkBehaviour
         {
             whatIsEnemy = LayerMask.GetMask("Enemy", "Player");
         }
-
-        Invoke(nameof(EquipStartingWeapon), .1f);
     }
 
     private void Update()
@@ -73,6 +89,111 @@ public class Player_WeaponController : NetworkBehaviour
             alreadyHitEnemies.Clear();
         }
     }
+
+    // Owner-side grenade spawn, called from the ThrowGrenadeTrigger animation event.
+public void SpawnGrenade()
+    {
+        Debug.Log($"[Grenade] SpawnGrenade called isOwner={base.IsOwner} currentType={(currentWeapon!=null?currentWeapon.weaponType.ToString():"NULL")}");
+        if (!base.IsOwner) return; // only the owning client spawns from the anim event
+        if (currentWeapon == null || currentWeapon.weaponType != WeaponType.Grenade) return; // safety: abort if switched away
+        // Both the Invoke fallback and the ThrowGrenadeTrigger animation event
+        // can fire around the release frame. Guard so only one grenade spawns.
+        if (grenadeSpawnedThisThrow) return;
+        grenadeSpawnedThisThrow = true;
+
+        Transform start = GunPoint();
+        Vector3 startPos = start.position;
+        // Use the live mouse raycast hit (ground point) — same source as the aim
+        // preview (Player_GrenadeAimVisual). Aim().position can be stale/chest-
+        // height if the player released right-mouse on the same frame as the throw
+        // (isAimingPrecisly flips in Player_AimController.Update, which may run
+        // after Shoot). The live raycast always returns the ground hit.
+        Vector3 aimPoint = player.aim.GetMouseHitInfo().point;
+        Debug.Log($"[Grenade] SpawnGrenade start={startPos} aim={aimPoint} prefab={(grenadePrefab!=null?grenadePrefab.name:"NULL")}");
+
+        // On a host (server + client in one process), the authoritative grenade
+        // spawned by CmdThrowGrenade renders in the same scene. Spawning a local
+        // predicted copy too would show two grenades — so only spawn the predicted
+        // visual on a dedicated client (not server). The server's grenade handles
+        // the host's view (and is the damaging one).
+        if (!base.IsServer)
+            SpawnGrenadeVisual(startPos, aimPoint, dealDamage: false);
+
+        int damage = currentWeapon != null ? currentWeapon.bulletDamage : 0;
+        CmdThrowGrenade(startPos, aimPoint, damage, whatIsAlly);
+    }
+
+    private void SpawnGrenadeVisual(Vector3 startPos, Vector3 aimPoint, bool dealDamage)
+    {
+        if (grenadePrefab == null) { Debug.LogWarning("grenadePrefab not assigned on Player_WeaponController"); return; }
+        // GetObject positions the instance at target.position; we override position afterwards.
+        GameObject grenadeObj = ObjectPool.instance.GetObject(grenadePrefab, transform);
+        grenadeObj.transform.position = startPos;
+
+        Enemy_Grenade g = grenadeObj.GetComponent<Enemy_Grenade>();
+        if (g != null)
+        {
+            g.SetupGrenade(
+                whatIsAlly,
+                aimPoint,
+                grenadeTimeToTarget,
+                grenadeCountdown,
+                grenadeImpactPower,
+                currentWeapon.bulletDamage,
+                dealDamage,
+                DetonationMode.OnLand,
+                1.5f);
+        }
+        else
+        {
+            Debug.LogWarning("grenadePrefab missing Enemy_Grenade component");
+        }
+    }
+
+    [ServerRpc]
+    private void CmdThrowGrenade(Vector3 spawnPos, Vector3 aimPoint, int damage, LayerMask allyMask)
+    {
+        // Server spawns the authoritative, damaging grenade using values from client
+        SpawnGrenadeVisualWithParams(spawnPos, aimPoint, damage, allyMask, dealDamage: true);
+
+        // Replicate a visual grenade to non-owner clients
+        RpcThrowGrenade(spawnPos, aimPoint, grenadeTimeToTarget);
+    }
+
+    [ObserversRpc(ExcludeOwner = true)]
+    private void RpcThrowGrenade(Vector3 spawnPos, Vector3 aimPoint, float timeToTarget)
+    {
+        // Non-owner clients spawn a visual-only grenade following the same arc
+        SpawnGrenadeVisual(spawnPos, aimPoint, dealDamage: false);
+    }
+
+    // Spawns grenade with explicit damage and ally mask (used by server via CmdThrowGrenade)
+    private void SpawnGrenadeVisualWithParams(Vector3 startPos, Vector3 aimPoint, int damage, LayerMask allyMask, bool dealDamage)
+    {
+        if (grenadePrefab == null) { Debug.LogWarning("grenadePrefab not assigned on Player_WeaponController"); return; }
+        GameObject grenadeObj = ObjectPool.instance.GetObject(grenadePrefab, transform);
+        grenadeObj.transform.position = startPos;
+
+        Enemy_Grenade g = grenadeObj.GetComponent<Enemy_Grenade>();
+        if (g != null)
+        {
+            g.SetupGrenade(
+                allyMask,
+                aimPoint,
+                grenadeTimeToTarget,
+                grenadeCountdown,
+                grenadeImpactPower,
+                damage,
+                dealDamage,
+                DetonationMode.OnLand,
+                1.5f);
+        }
+        else
+        {
+            Debug.LogWarning("grenadePrefab missing Enemy_Grenade component");
+        }
+    }
+
 
     private void MeleeAttackCheck()
     {
@@ -113,6 +234,13 @@ public class Player_WeaponController : NetworkBehaviour
                     if (netObj.NetworkObject == this.NetworkObject) continue;
 
                     alreadyHitEnemies.Add(netObj.NetworkObject);
+                    
+                    UI_HealthBar uiHealth = netObj.GetComponent<UI_HealthBar>();
+                    if (uiHealth != null)
+                    {
+                        uiHealth.ShowUI();
+                    }
+
                     CmdReportMeleeHit(netObj.NetworkObject, currentWeapon.bulletDamage);
                     
                     if (meleeAttackFx != null)
@@ -138,56 +266,74 @@ public class Player_WeaponController : NetworkBehaviour
             weaponSlots.Add(null);
         }
 
-        weaponSlots[0] = new Weapon(defaultWeaponData);
+        // Only equip defaults if the slots are completely empty (e.g. fresh spawn, not loaded from save)
+        if (weaponSlots[0] == null)
+            weaponSlots[0] = new Weapon(defaultWeaponData);
         
-        if (defaultMeleeWeaponData != null)
+        if (weaponSlots[2] == null && defaultMeleeWeaponData != null)
         {
             weaponSlots[2] = new Weapon(defaultMeleeWeaponData);
         }
 
-        EquipWeapon(0);
+        if (weaponSlots[3] == null && defaultGrenadeWeaponData != null)
+        {
+            weaponSlots[3] = new Weapon(defaultGrenadeWeaponData);
+        }
+
+        if (currentWeapon == null || currentWeapon.weaponData == null || string.IsNullOrEmpty(currentWeapon.weaponData.weaponName))
+        {
+            EquipWeapon(0);
+        }
     }
-    private void EquipWeapon(int i)
+    public int CurrentWeaponIndex
     {
+        get
+        {
+            if (currentWeapon == null || weaponSlots == null) return -1;
+            return weaponSlots.IndexOf(currentWeapon);
+        }
+    }
+
+    public void EquipWeapon(int i)
+    {
+        Debug.Log($"[Grenade] EquipWeapon({i}) slots.Count={weaponSlots.Count} slotNull={i<weaponSlots.Count && weaponSlots[i]==null}");
         if (i >= weaponSlots.Count || weaponSlots[i] == null)
             return;
 
         SetWeaponReady(false);
 
         currentWeapon = weaponSlots[i];
+        Debug.Log($"[Grenade] EquipWeapon -> currentWeapon={currentWeapon.weaponType} ready set false");
         player.weaponVisuals.PlayWeaponEquipAnimation();
 
         CameraManager.instance.ChangeCameraDistance(currentWeapon.cameraDistance);
+
+        if (base.IsOwner)
+        {
+            CmdEquipWeaponAnim(i);
+        }
+    }
+
+    [ServerRpc]
+    private void CmdEquipWeaponAnim(int index)
+    {
+        RpcEquipWeaponAnim(index);
+    }
+
+    [ObserversRpc(ExcludeOwner = true)]
+    private void RpcEquipWeaponAnim(int index)
+    {
+        if (index >= 0 && index < weaponSlots.Count && weaponSlots[index] != null)
+        {
+            currentWeapon = weaponSlots[index];
+            player.weaponVisuals.PlayWeaponEquipAnimation();
+        }
     }
     public void PickupWeapon(Weapon newWeapon)
     {
-        if (WeaponInSlots(newWeapon.weaponType) != null)
-        {
-            WeaponInSlots(newWeapon.weaponType).totalReserveAmmo += newWeapon.bulletsInMagazine;
-            return;
-        }
-
-        // Only allow picking up non-melee weapons in slot 0 and 1
-        if (weaponSlots.Count >= maxSlots - 1 && currentWeapon.weaponType != WeaponType.Melee)
-        {
-            int currentWeaponIndex = weaponSlots.IndexOf(currentWeapon);
-            player.weaponVisuals.SwitchOffWeaponModels();
-            weaponSlots[currentWeaponIndex] = newWeapon;
-            CreateWeaponOnTheGround();
-            EquipWeapon(currentWeaponIndex);
-            return;
-        }
-
-        // Add to first available empty slot (usually 1)
-        for (int i = 0; i < maxSlots; i++)
-        {
-            if (weaponSlots[i] == null)
-            {
-                weaponSlots[i] = newWeapon;
-                EquipWeapon(i);
-                return;
-            }
-        }
+        if (newWeapon == null || newWeapon.weaponData == null) return;
+        
+        player.inventory.CmdPickupWeapon(newWeapon.weaponData.weaponName, newWeapon.bulletsInMagazine, newWeapon.totalReserveAmmo);
     }
     private void DropWeapon()
     {
@@ -196,6 +342,10 @@ public class Player_WeaponController : NetworkBehaviour
 
         // Don't drop melee weapon
         if (currentWeapon.weaponType == WeaponType.Melee)
+            return;
+
+        // Don't drop the grenade slot
+        if (currentWeapon.weaponType == WeaponType.Grenade)
             return;
 
         CreateWeaponOnTheGround();
@@ -212,6 +362,74 @@ public class Player_WeaponController : NetworkBehaviour
 
     public void SetWeaponReady(bool ready) => weaponReady = ready;
     public bool WeaponReady() => weaponReady;
+
+    #region Inventory UI bridge (local-only; v1 does not sync to other clients)
+
+    // Called by PlayerInventory when the player drags an item onto an equipment slot.
+    // Local-only: the owner visually holds/fires the new gun; other clients won't see
+    // the swap until a future ServerRpc pass.
+    public void EquipFromInventory(int slot, Weapon_Data data, int ammoInMag = -1, int ammoReserve = -1, bool equip = true)
+    {
+        if (data == null) return;
+        if (slot < 0 || slot >= weaponSlots.Count) return;
+
+        weaponSlots[slot] = new Weapon(data);
+        
+        // Restore ammo if provided (from network sync / save data)
+        if (ammoInMag >= 0) weaponSlots[slot].bulletsInMagazine = ammoInMag;
+        if (ammoReserve >= 0) weaponSlots[slot].totalReserveAmmo = ammoReserve;
+        
+        if (equip)
+            EquipWeapon(slot);
+    }
+
+    public Weapon GetWeaponAt(int slot)
+    {
+        if (slot < 0 || slot >= weaponSlots.Count) return null;
+        return weaponSlots[slot];
+    }
+
+    // Clears a weapon slot (e.g. when its item is dragged to the backpack). If the
+    // cleared weapon was the currently-held one, switches to another available weapon.
+    // v1: if no other weapon remains, leaves currentWeapon as-is (rare edge case;
+    // avoids null-deref in Shoot/HUD).
+    public void ClearWeaponSlot(int slot)
+    {
+        if (slot < 0 || slot >= weaponSlots.Count) return;
+        Weapon cleared = weaponSlots[slot];
+        weaponSlots[slot] = null;
+
+        if (cleared != null && currentWeapon == cleared)
+        {
+            for (int i = 0; i < weaponSlots.Count; i++)
+            {
+                if (weaponSlots[i] != null)
+                {
+                    EquipWeapon(i);
+                    return;
+                }
+            }
+            // No other weapon available — leave currentWeapon holding the cleared
+            // one for v1 (documented edge case).
+        }
+    }
+
+    public System.Collections.Generic.IReadOnlyList<Weapon> GetWeaponSlots() => weaponSlots;
+
+    // Mirrors EquipStartingWeapon's defaults so PlayerInventory can seed without racing
+    // the 0.1s-delayed EquipStartingWeapon Invoke.
+    public Weapon_Data GetDefaultWeaponData(int slot)
+    {
+        switch (slot)
+        {
+            case 0: return defaultWeaponData;
+            case 2: return defaultMeleeWeaponData;
+            case 3: return defaultGrenadeWeaponData;
+            default: return null;
+        }
+    }
+
+    #endregion
 
     #endregion
 
@@ -232,6 +450,8 @@ public class Player_WeaponController : NetworkBehaviour
     }
 
     private float lastMeleeAttackTime;
+    private bool grenadeSpawnedThisThrow;
+    private const float GrenadeSpawnDelay = 2.0f; // seconds after throw start before the grenade leaves the hand
 
     private void Shoot()
     {
@@ -253,6 +473,12 @@ public class Player_WeaponController : NetworkBehaviour
             {
                 Debug.Log("Melee attack blocked by cooldown");
             }
+            return;
+        }
+
+        if (currentWeapon.weaponType == WeaponType.Grenade)
+        {
+            PerformGrenadeThrow();
             return;
         }
 
@@ -283,11 +509,50 @@ public class Player_WeaponController : NetworkBehaviour
         isShooting = false;
         player.weaponVisuals.PlayMeleeAnimation();
 
-        if (base.IsOwner) 
+        if (base.IsOwner)
         {
             CmdMeleeAttack();
         }
     }
+
+private void PerformGrenadeThrow()
+    {
+        // Cache CanShoot() once — ReadyToFire() has a side effect (sets lastShootTime),
+        // so calling it twice (e.g. in a debug log AND the guard) makes the second
+        // call always false, silently blocking the throw.
+        bool canAim = player.aim != null && player.aim.CanAimPrecisly();
+        bool canShoot = currentWeapon.CanShoot();
+        Debug.Log($"[Grenade] PerformGrenadeThrow canAim={canAim} canShoot={canShoot} remaining={currentWeapon.bulletsInMagazine}");
+        if (!canAim) return;
+        if (!canShoot) return;
+
+        isShooting = false;
+        currentWeapon.bulletsInMagazine--; // consume 1 grenade
+        grenadeSpawnedThisThrow = false; // arm the dedupe guard for this throw
+        Debug.Log($"[Grenade] PerformGrenadeThrow -> throwing, remaining={currentWeapon.bulletsInMagazine}");
+        player.weaponVisuals.PlayGrenadeThrowAnimation();
+        // Spawn the grenade at the release frame of the throw animation. Tuned
+        // delay to sync with the arm's release point.
+        Invoke(nameof(SpawnGrenade), GrenadeSpawnDelay);
+
+        if (base.IsOwner)
+        {
+            CmdGrenadeThrowAnim();
+        }
+    }
+
+    [ServerRpc]
+    private void CmdGrenadeThrowAnim()
+    {
+        RpcGrenadeThrowAnim();
+    }
+
+    [ObserversRpc(ExcludeOwner = true)]
+    private void RpcGrenadeThrowAnim()
+    {
+        player.weaponVisuals.PlayGrenadeThrowAnimation();
+    }
+
 
     [ServerRpc]
     private void CmdMeleeAttack()
@@ -453,7 +718,11 @@ public class Player_WeaponController : NetworkBehaviour
     {
         PlayerControls controls = player.controls;
 
-        controls.Character.Fire.performed += context => isShooting = true;
+        controls.Character.Fire.performed += context => 
+        {
+            if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject()) return;
+            isShooting = true;
+        };
         controls.Character.Fire.canceled += context => isShooting = false;
 
         controls.Character.EquipSlot1.performed += context => EquipWeapon(0);

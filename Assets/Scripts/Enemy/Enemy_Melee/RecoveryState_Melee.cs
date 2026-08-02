@@ -26,6 +26,12 @@ public class RecoveryState_Melee : EnemyState
     {
         base.Update();
 
+        if (enemy.player == null)
+        {
+            stateMachine.ChangeState(enemy.idleState);
+            return;
+        }
+
         enemy.FaceTarget(enemy.player.position);
 
         if (triggerCalled)

@@ -7,7 +7,8 @@ public enum WeaponType
     AutoRifle,
     Shotgun,
     Rifle,
-    Melee
+    Melee,
+    Grenade
 }
 public enum ShootType
 {

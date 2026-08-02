@@ -104,7 +104,12 @@ public class Bullet : MonoBehaviour
                     UI_HealthBar uiHealth = netObj.GetComponent<UI_HealthBar>();
                     if (uiHealth != null)
                     {
+                        Debug.Log("Bullet hit, calling ShowUI on " + netObj.name);
                         uiHealth.ShowUI();
+                    }
+                    else
+                    {
+                        Debug.Log("Bullet hit " + netObj.name + " but no UI_HealthBar found!");
                     }
 
                     int finalDamage = bulletDamage;

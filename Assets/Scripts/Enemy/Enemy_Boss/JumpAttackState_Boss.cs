@@ -18,7 +18,10 @@ public class JumpAttackState_Boss : EnemyState
     {
         base.Enter();
 
-        lastPlayerPos = enemy.player.position;
+        if (enemy.player != null)
+            lastPlayerPos = enemy.player.position;
+        else
+            lastPlayerPos = enemy.transform.position;
         enemy.agent.isStopped = true;
         enemy.agent.velocity = Vector3.zero;
 

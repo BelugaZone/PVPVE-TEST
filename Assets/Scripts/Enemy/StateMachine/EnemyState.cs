@@ -53,7 +53,7 @@ public class EnemyState
         if (path.corners.Length < 2)
             return agent.destination;
 
-        for (int i = 0; i < path.corners.Length; i++)
+        for (int i = 0; i < path.corners.Length - 1; i++)
         {
             if (Vector3.Distance(agent.transform.position, path.corners[i]) < 1)
                 return path.corners[i + 1];

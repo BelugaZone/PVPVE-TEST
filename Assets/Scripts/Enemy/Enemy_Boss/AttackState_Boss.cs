@@ -25,8 +25,10 @@ public class AttackState_Boss : EnemyState
     {
         base.Update();
 
-        if (stateTimer > 0)
+        if (stateTimer > 0 && enemy.player != null)
+        {
             enemy.FaceTarget(enemy.player.position, 20);
+        }
 
         if (triggerCalled)
         {

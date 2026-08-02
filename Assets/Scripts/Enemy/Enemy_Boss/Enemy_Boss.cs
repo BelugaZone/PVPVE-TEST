@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using FishNet.Object;
 
 public enum BossWeaponType {  Flamethrower, Hummer}
 
@@ -61,6 +62,15 @@ public class Enemy_Boss : Enemy
     {
         base.Awake();
 
+        // Default configurations if not set in Inspector
+        if (fovAngle <= 0f) fovAngle = 90f;
+        if (chaseRange <= 0f) chaseRange = 25f;
+        if (aggresionRange <= 0f) aggresionRange = 10f;
+        
+        // Halve the movement speed as requested
+        walkSpeed /= 2f;
+        runSpeed /= 2f;
+
         bossVisuals = GetComponent<Enemy_BossVisuals>();
 
         idleState = new IdleState_Boss(this, stateMachine, "Idle");
@@ -87,9 +97,6 @@ public class Enemy_Boss : Enemy
 
         stateMachine.currentState.Update();
 
-        if (ShouldEnterBattleMode())
-            EnterBattleMode();
-
         MeleeAttackCheck(damagePoints, attackCheckRadius, meleeAttackFx,meleeAttackDamage);
     }
 
@@ -115,6 +122,13 @@ public class Enemy_Boss : Enemy
 
     public void ActivateFlamethrower(bool activate)
     {
+        if (base.IsServer)
+            RpcActivateFlamethrower(activate);
+    }
+
+    [ObserversRpc(ExcludeServer = false)]
+    private void RpcActivateFlamethrower(bool activate)
+    {
         flamethrowActive = activate;
 
         if (!activate)
@@ -137,14 +151,23 @@ public class Enemy_Boss : Enemy
 
     public void ActivateHummer()
     {
+        if (base.IsServer)
+        {
+            MassDamage(damagePoints[0].position, hummerCheckRadius, hummerActiveDamage);
+            RpcActivateHummer();
+        }
+    }
+
+    [ObserversRpc(ExcludeServer = false)]
+    private void RpcActivateHummer()
+    {
         GameObject newActivation = ObjectPool.instance.GetObject(activationPrefab, impactPoint);
         ObjectPool.instance.ReturnObject(newActivation, 1);
-
-        MassDamage(damagePoints[0].position, hummerCheckRadius,hummerActiveDamage);
     }
 
     public bool CanDoAbility()
     {
+        if (player == null) return false;
         bool playerWithinDistance = Vector3.Distance(transform.position, player.position) < minAbilityDistance;
 
         if (playerWithinDistance == false)
@@ -162,12 +185,24 @@ public class Enemy_Boss : Enemy
 
     public void JumpImpact()
     {
-        Transform impactPoint = this.impactPoint;
+        Transform impactPt = this.impactPoint;
 
-        if (impactPoint == null)
-            impactPoint = transform;
+        if (impactPt == null)
+            impactPt = transform;
 
-        MassDamage(impactPoint.position, impactRadius,jumpAttackDamage);
+        // Called by animation event on all clients. Route damage through server only, handle physics locally.
+        if (base.IsServer)
+        {
+            MassDamage(impactPt.position, impactRadius, jumpAttackDamage);
+            RpcJumpImpact(impactPt.position);
+        }
+    }
+
+    [ObserversRpc(ExcludeServer = false)]
+    private void RpcJumpImpact(Vector3 impactPos)
+    {
+        // Visuals or physics that need to happen exactly on impact can go here
+        // Currently handled partially by MassDamage physics
     }
 
     private void MassDamage(Vector3 impactPoint, float impactRadius,int damage)
@@ -186,10 +221,15 @@ public class Enemy_Boss : Enemy
                 if (uniqueEntities.Add(rootEntity) == false)
                     continue;
 
-                Debug.Log(hit.transform.root.name + " Was damaged!!!");
-                damagable.TakeDamage(damage);
+                // Only apply damage on Server!
+                if (base.IsServer)
+                {
+                    Debug.Log(hit.transform.root.name + " Was damaged!!!");
+                    damagable.TakeDamage(damage);
+                }
             }
 
+            // Apply forces on all clients/server for physics sync
             ApplyPhysicalForceTo(impactPoint, impactRadius, hit);
         }
     }
@@ -204,6 +244,7 @@ public class Enemy_Boss : Enemy
 
     public bool CanDoJumpAttack()
     {
+        if (player == null) return false;
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
         if (distanceToPlayer < minJumpDistanceRequired)
@@ -221,6 +262,7 @@ public class Enemy_Boss : Enemy
 
     public bool IsPlayerInClearSight()
     {
+        if (player == null) return false;
         Vector3 myPos = transform.position + new Vector3(0, 1.5f, 0);
         Vector3 playerPos = player.position + Vector3.up;
         Vector3 directionToPlayer = (playerPos - myPos).normalized;
@@ -233,7 +275,7 @@ public class Enemy_Boss : Enemy
 
         return false;
     }
-    public bool PlayerInAttackRange() => Vector3.Distance(transform.position, player.position) < attackRange;
+    public bool PlayerInAttackRange() => player != null && Vector3.Distance(transform.position, player.position) < attackRange;
 
     protected override void SpawnMeleeHitFx(int damagePointIndex)
     {

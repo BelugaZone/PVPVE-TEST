@@ -18700,6 +18700,8 @@ GameObject:
   - component: {fileID: 3698428689427207251}
   - component: {fileID: 6337127212025658551}
   - component: {fileID: 6685853562082286802}
+  - component: {fileID: 4760517016233576784}
+  - component: {fileID: 7508602363322467603}
   m_Layer: 11
   m_Name: Enemy_Boss_Flamethrower
   m_TagString: Untagged
@@ -18724,7 +18726,7 @@ Transform:
   - {fileID: 4545999204917849412}
   - {fileID: 6185693407143976209}
   m_Father: {fileID: 0}
-  m_RootOrder: -2
+  m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!195 &4589424794015968695
 NavMeshAgent:
@@ -18772,6 +18774,11 @@ MonoBehaviour:
   healthPoints: 5
   idleTime: 3
   aggresionRange: 15
+  chaseRange: 15
+  fovAngle: 90
+  whatIsObstacle:
+    serializedVersion: 2
+    m_Bits: 0
   walkSpeed: 1.25
   runSpeed: 4
   turnSpeed: 8
@@ -18779,6 +18786,7 @@ MonoBehaviour:
   - {fileID: 4719425290124929824}
   - {fileID: 8120080741906631284}
   - {fileID: 57291627576391273}
+  isDead: 0
   bossWeaponType: 0
   actionCooldown: 1
   attackRange: 1.6
@@ -18983,6 +18991,44 @@ MonoBehaviour:
   _interpolation: 2
   _clientAuthoritative: 1
   _sendToOwner: 0
+--- !u!65 &4760517016233576784
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7364281645933512702}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1, y: 1, z: 1}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &7508602363322467603
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7364281645933512702}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bae88e1341b494e4aafa4ac3799c618c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 3698428689427207251}
+  _networkObjectCache: {fileID: 0}
+  possibleLoot: []
+  itemRegistry: {fileID: 11400000, guid: 8519b60277f60dc4e9c76afafbc58cc2, type: 2}
 --- !u!1 &7455410051620454792
 GameObject:
   m_ObjectHideFlags: 0

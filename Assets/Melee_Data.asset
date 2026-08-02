@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ebc2466499cd6ca4c866730b163cd293, type: 3}
   m_Name: Melee_Data
   m_EditorClassIdentifier: 
-  weaponName: 
+  weaponName: Melee
   bulletDamage: 50
   bulletsInMagazine: 0
   magazineCapacity: 0

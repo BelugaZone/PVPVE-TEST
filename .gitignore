@@ -58,3 +58,7 @@ Thumbs.db
 # Claude / VS Code
 # =====================
 .claude/
+
+# MCP screenshots
+Assets/Screenshots/
+Assets/Screenshots.meta

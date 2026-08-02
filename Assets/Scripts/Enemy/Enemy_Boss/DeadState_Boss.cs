@@ -22,7 +22,10 @@ public class DeadState_Boss : EnemyState
 
         enemy.anim.enabled = false;
 
-        enemy.ragdoll.RagdollActive(true);
+        if (enemy.ragdoll != null)
+        {
+            enemy.ragdoll.RagdollActive(true);
+        }
 
         stateTimer = 1.5f;
     }

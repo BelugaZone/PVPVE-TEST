@@ -39,6 +39,12 @@ public class AbilityState_Melee : EnemyState
     {
         base.Update();
 
+        if (enemy.player == null)
+        {
+            stateMachine.ChangeState(enemy.idleState);
+            return;
+        }
+
         if (enemy.ManualRotationActive())
         {
             enemy.FaceTarget(enemy.player.position);

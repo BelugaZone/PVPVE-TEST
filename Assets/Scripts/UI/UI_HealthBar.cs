@@ -7,6 +7,7 @@ public class UI_HealthBar : MonoBehaviour
     private Image fillImage;
     private Canvas canvas;
     private RectTransform canvasRect;
+    private bool isVisibleByFOV = true;
 
     [SerializeField] private float worldHeightOffset = 2.2f;
 
@@ -44,6 +45,13 @@ public class UI_HealthBar : MonoBehaviour
     private void OnHealthChanged(int oldHealth, int newHealth, bool asServer)
     {
         UpdateHealthUI(newHealth);
+
+        Debug.Log($"[UI_HealthBar] OnHealthChanged on {gameObject.name}. old={oldHealth}, new={newHealth}, max={healthController.maxHealth}");
+
+        if (newHealth < healthController.maxHealth && newHealth > 0)
+        {
+            ShowUI();
+        }
 
         if (newHealth <= 0 && canvas != null)
         {
@@ -107,9 +115,29 @@ public class UI_HealthBar : MonoBehaviour
 
     public void ShowUI()
     {
+        if (!isVisibleByFOV) return; // Block showing if hidden by FOV
+
+        Debug.Log($"[UI_HealthBar] ShowUI called on {gameObject.name}. Canvas active: {canvas != null && canvas.gameObject.activeSelf}. Canvas null: {canvas == null}");
         if (canvas != null && !canvas.gameObject.activeSelf)
         {
             canvas.gameObject.SetActive(true);
+            Debug.Log($"[UI_HealthBar] Canvas activated for {gameObject.name}");
+        }
+    }
+
+    public void SetVisibleByFOV(bool visible)
+    {
+        isVisibleByFOV = visible;
+        if (canvas != null)
+        {
+            if (!visible)
+            {
+                canvas.gameObject.SetActive(false);
+            }
+            else if (healthController != null && healthController.currentHealth.Value < healthController.maxHealth && healthController.currentHealth.Value > 0)
+            {
+                canvas.gameObject.SetActive(true);
+            }
         }
     }
 

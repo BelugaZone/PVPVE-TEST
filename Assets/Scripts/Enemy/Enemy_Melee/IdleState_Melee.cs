@@ -15,6 +15,10 @@ public class IdleState_Melee : EnemyState
     {
         base.Enter();
 
+        enemy.SetAnimFloat("IdleAnimIndex", Random.Range(0, 3)); // we have 3 animtions with index 0 to 2
+
+        enemy.visuals.EnableIK(true, false);
+
         stateTimer = enemy.idleTime;
     }
 

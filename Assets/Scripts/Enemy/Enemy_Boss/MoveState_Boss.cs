@@ -44,6 +44,12 @@ public class MoveState_Boss : EnemyState
 
         if (enemy.inBattleMode)
         {
+            if (enemy.player == null)
+            {
+                enemy.EnterBattleMode(); // Actually we shouldn't be in battle mode if player is null, but let base update handle it, just fallback here.
+                return;
+            }
+
             if (ShouldSpeedUp())
                 SpeedUp();
 

@@ -15,6 +15,9 @@ public class Enemy : NetworkBehaviour
     [Header("Idle data")]
     public float idleTime;
     public float aggresionRange;
+    public float chaseRange = 15f;
+    [Range(0, 360)] public float fovAngle = 90f;
+    public LayerMask whatIsObstacle;
 
     [Header("Move data")]
     public float walkSpeed = 1.5f;
@@ -41,6 +44,8 @@ public class Enemy : NetworkBehaviour
 
     public Ragdoll ragdoll { get; private set; }
 
+    public Enemy_LootContainer lootContainer { get; private set; }
+
     private float updatePlayerTimer;
 
     protected virtual void Awake()
@@ -52,16 +57,39 @@ public class Enemy : NetworkBehaviour
         visuals = GetComponent<Enemy_Visuals>();
         agent = GetComponent<NavMeshAgent>();
         anim = GetComponentInChildren<Animator>();
+        lootContainer = GetComponentInChildren<Enemy_LootContainer>();
     }
 
     protected virtual void Start()
     {
+        if (fovAngle <= 0f) fovAngle = 90f; // Fix Unity serialization setting new floats to 0
+        
         InitializePatrolPoints();
+
+        // Fallback: If no patrol points are assigned in the inspector, generate some random ones around spawn
+        if (patrolPointsPosition == null || patrolPointsPosition.Length == 0)
+        {
+            patrolPointsPosition = new Vector3[3];
+            for (int i = 0; i < 3; i++)
+            {
+                Vector2 randomCircle = Random.insideUnitCircle * 10f;
+                Vector3 randomPos = transform.position + new Vector3(randomCircle.x, 0, randomCircle.y);
+                if (UnityEngine.AI.NavMesh.SamplePosition(randomPos, out UnityEngine.AI.NavMeshHit hit, 10f, UnityEngine.AI.NavMesh.AllAreas))
+                {
+                    patrolPointsPosition[i] = hit.position;
+                }
+                else
+                {
+                    patrolPointsPosition[i] = transform.position;
+                }
+            }
+        }
     }
 
     protected virtual void Update()
     {
         if (!base.IsServer) return;
+        if (isDead) return;
 
         updatePlayerTimer -= Time.deltaTime;
         if (updatePlayerTimer <= 0)
@@ -85,7 +113,35 @@ public class Enemy : NetworkBehaviour
             if (p.health != null && p.health.isDead.Value) continue;
 
             float dist = Vector3.Distance(transform.position, p.transform.position);
-            if (dist < closestDistance)
+            bool canSee = false;
+
+            if (inBattleMode)
+            {
+                if (dist <= chaseRange) canSee = true;
+            }
+            else
+            {
+                if (dist <= aggresionRange)
+                {
+                    Vector3 dirToPlayer = (p.transform.position - transform.position).normalized;
+                    float angle = Vector3.Angle(transform.forward, dirToPlayer);
+                    if (angle <= fovAngle / 2f)
+                    {
+                        Vector3 rayStart = transform.position + Vector3.up;
+                        Vector3 directionToPlayer = (p.transform.position + Vector3.up) - rayStart;
+
+                        if (Physics.Raycast(rayStart, directionToPlayer, out RaycastHit hit, Mathf.Infinity, ~whatIsAlly))
+                        {
+                            if (hit.transform.root == p.transform.root)
+                            {
+                                canSee = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (canSee && dist < closestDistance)
             {
                 closestDistance = dist;
                 closest = p;
@@ -101,6 +157,7 @@ public class Enemy : NetworkBehaviour
         {
             player = null;
             playerBody = null;
+            inBattleMode = false;
         }
     }
 
@@ -130,12 +187,15 @@ public class Enemy : NetworkBehaviour
     public override void OnStartClient()
     {
         base.OnStartClient();
+        Debug.Log($"[Enemy.OnStartClient] on {gameObject.name}");
 
         if (health != null && health.currentHealth.Value <= 0)
         {
             isDead = true;
             Die();
             DeathCleanup();
+            // Late joiners: enable loot trigger so they can search the corpse
+            lootContainer?.EnableLootTrigger();
             StartCoroutine(SettleRagdollRoutine());
         }
     }
@@ -165,12 +225,15 @@ public class Enemy : NetworkBehaviour
         if (isDead) return;
 
         health.ReduceHealth(damage);
+        Debug.Log($"[Enemy.GetHit] on {gameObject.name}. Damage: {damage}. New Health: {health.currentHealth.Value}");
 
         if (health.ShouldDie())
         {
             isDead = true;
             Die();
             DeathCleanup();
+            // Activate loot trigger on server side before broadcasting death
+            lootContainer?.EnableLootTrigger();
             RpcDie();
             return;
         }
@@ -184,6 +247,8 @@ public class Enemy : NetworkBehaviour
         isDead = true;
         Die();
         DeathCleanup();
+        // Activate loot trigger on clients so players can walk up and search
+        lootContainer?.EnableLootTrigger();
     }
 
     private void DeathCleanup()
@@ -314,7 +379,11 @@ public class Enemy : NetworkBehaviour
 
     public void FaceTarget(Vector3 target,float turnSpeed = 0)
     {
-        Quaternion targetRotation = Quaternion.LookRotation(target - transform.position);
+        Vector3 direction = target - transform.position;
+        if (direction.sqrMagnitude <= 0.001f)
+            return;
+
+        Quaternion targetRotation = Quaternion.LookRotation(direction);
 
         Vector3 currentEulerAngels = transform.rotation.eulerAngles;
 
@@ -390,23 +459,32 @@ public class Enemy : NetworkBehaviour
     #region Patrol logic
     public Vector3 GetPatrolDestination()
     {
+        if (patrolPointsPosition == null || patrolPointsPosition.Length == 0)
+            return transform.position;
+
         Vector3 destination = patrolPointsPosition[currentPatrolIndex];
 
         currentPatrolIndex++;
 
-        if (currentPatrolIndex >= patrolPoints.Length)
+        if (currentPatrolIndex >= patrolPointsPosition.Length)
             currentPatrolIndex = 0;
 
         return destination;
     }
     private void InitializePatrolPoints()
     {
+        if (patrolPoints == null)
+            return;
+
         patrolPointsPosition = new Vector3[patrolPoints.Length];
 
         for (int i = 0; i < patrolPoints.Length; i++)
         {
-            patrolPointsPosition[i] = patrolPoints[i].position;
-            patrolPoints[i].gameObject.SetActive(false);
+            if (patrolPoints[i] != null)
+            {
+                patrolPointsPosition[i] = patrolPoints[i].position;
+                patrolPoints[i].gameObject.SetActive(false);
+            }
         }
     }
 
@@ -420,6 +498,16 @@ public class Enemy : NetworkBehaviour
     
     protected virtual void OnDrawGizmos()
     {
+        Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, aggresionRange);
+        
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, chaseRange);
+
+        Gizmos.color = Color.cyan;
+        Vector3 leftBoundary = Quaternion.Euler(0, -fovAngle / 2f, 0) * transform.forward * aggresionRange;
+        Vector3 rightBoundary = Quaternion.Euler(0, fovAngle / 2f, 0) * transform.forward * aggresionRange;
+        Gizmos.DrawLine(transform.position, transform.position + leftBoundary);
+        Gizmos.DrawLine(transform.position, transform.position + rightBoundary);
     }
 }

@@ -5,6 +5,9 @@ using Cinemachine;
 public class Player : NetworkBehaviour
 {
     public Transform playerBody;
+    
+    [HideInInspector]
+    public string playerID;
 
     public PlayerControls controls { get; private set; }
     public Player_AimController aim { get; private set; }
@@ -14,6 +17,9 @@ public class Player : NetworkBehaviour
     public Player_Interaction interaction { get; private set; }
     public Player_Health health { get; private set; }
     public Ragdoll ragdoll { get; private set; }
+    public Player_FOV fov { get; private set; }
+    public PlayerInventory inventory { get; private set; }
+    public Enemy_LootContainer lootContainer { get; private set; }
 
     public Animator anim { get; private set; }
 
@@ -29,6 +35,9 @@ public class Player : NetworkBehaviour
         weapon = GetComponent<Player_WeaponController>();
         weaponVisuals = GetComponent<Player_WeaponVisuals>();
         interaction = GetComponent<Player_Interaction>();
+        fov = GetComponent<Player_FOV>();
+        inventory = GetComponent<PlayerInventory>();
+        lootContainer = GetComponentInChildren<Enemy_LootContainer>();
     }
 
     public override void OnStartClient()
@@ -37,6 +46,16 @@ public class Player : NetworkBehaviour
         if (base.IsOwner)
         {
             controls.Enable();
+        }
+    }
+
+    public override void OnStopServer()
+    {
+        base.OnStopServer();
+        if (ServerDataManager.Instance != null && !string.IsNullOrEmpty(playerID))
+        {
+            ServerDataManager.Instance.SavePlayerState(playerID, this);
+            ServerDataManager.Instance.SaveAllData();
         }
     }
 

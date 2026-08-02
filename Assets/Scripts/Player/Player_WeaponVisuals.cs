@@ -3,14 +3,11 @@ using UnityEngine.Animations.Rigging;
 
 public class Player_WeaponVisuals : MonoBehaviour
 {
-
     private Player player;
     private Animator anim;
 
     [SerializeField] private WeaponModel[] weaponModels;
     [SerializeField] private BackupWeaponModel[] backupWeaponModels;
-
-
 
     [Header("Rig ")]
     [SerializeField] private float rigWeightIncreaseRate;
@@ -23,9 +20,7 @@ public class Player_WeaponVisuals : MonoBehaviour
     [SerializeField] private Transform leftHandIK_Target;
     private bool shouldIncrease_LeftHandIKWieght;
 
-
-
-    private void Start()
+    private void Awake()
     {
         player  = GetComponent<Player>();
         anim = GetComponentInChildren<Animator>();
@@ -40,7 +35,6 @@ public class Player_WeaponVisuals : MonoBehaviour
         UpdateRigWigth();
         UpdateLeftHandIKWeight();
     }
-
 
     public void PlayFireAnimation() => anim.SetTrigger("Fire");
     public void PlayReloadAnimation()
@@ -64,6 +58,22 @@ public class Player_WeaponVisuals : MonoBehaviour
         {
             anim.SetLayerWeight(i, 0);
         }
+
+        StartCoroutine(RestoreWeaponLayersRoutine());
+    }
+
+    public void PlayGrenadeThrowAnimation()
+    {
+        anim.SetTrigger("ThrowGrenade");
+        leftHandIK.weight = 0;
+        ReduceRigWeight();
+
+        // Zero other upper-body layers so only the Grenade layer plays the throw
+        for (int i = 1; i < anim.layerCount; i++)
+        {
+            anim.SetLayerWeight(i, 0);
+        }
+        anim.SetLayerWeight(5, 1); // ensure grenade layer active during throw
 
         StartCoroutine(RestoreWeaponLayersRoutine());
     }
@@ -98,26 +108,38 @@ public class Player_WeaponVisuals : MonoBehaviour
         }
     }
 
-    public void PlayWeaponEquipAnimation()
+public void PlayWeaponEquipAnimation()
     {
         WeaponModel model = CurrentWeaponModel();
+        Debug.Log($"[Grenade] PlayWeaponEquipAnimation model={(model!=null?model.name+" type="+model.weaponType.ToString():"NULL")}");
         if (model == null) return;
         
         EquipType equipType = model.equipAnimationType;
 
         float equipmentSpeed = player.weapon.CurrentWeapon().equipmentSpeed;
 
+        // The equip animation lives on layer 1 (Common Weapon Layer). If a prior
+        // throw zeroed layer 1's weight (PlayGrenadeThrowAnimation does this), the
+        // equip animation won't play and its SwitchOnWeaponModel / WeaponEquipingIsOver
+        // events won't fire — leaving the wrong model active and weaponReady stuck.
+        // Restore layer 1 weight so the equip animation can play.
+        anim.SetLayerWeight(1, 1);
+
         leftHandIK.weight = 0;
         ReduceRigWeight();
         anim.SetTrigger("EquipWeapon");
         anim.SetFloat("EquipType", ((float)equipType));
         anim.SetFloat("EquipSpeed", equipmentSpeed);
+        Debug.Log($"[Grenade] PlayWeaponEquipAnimation set EquipType={equipType} EquipSpeed={equipmentSpeed}");
     }
 
 
-    public void SwitchOnCurrentWeaponModel()
+public void SwitchOnCurrentWeaponModel()
     {
-        int animationIndex = ((int)CurrentWeaponModel().holdType);
+        var curModel = CurrentWeaponModel();
+        Debug.Log($"[Grenade] SwitchOnCurrentWeaponModel cur={(curModel!=null?curModel.name+" hold="+(int)curModel.holdType:"NULL")}");
+        if (curModel == null) return;
+        int animationIndex = ((int)curModel.holdType);
 
         SwitchOffWeaponModels();
         SwitchOffBackupWeaponModels();
@@ -127,15 +149,22 @@ public class Player_WeaponVisuals : MonoBehaviour
             SwitchOnBackupWeaponModel();
 
         SwitchAnimationLayer(animationIndex);
-        CurrentWeaponModel().gameObject.SetActive(true);
+        curModel.gameObject.SetActive(true);
         AttachLeftHand();
 
-        if (CurrentWeaponModel().weaponType == WeaponType.Melee)
+        if (curModel.weaponType == WeaponType.Melee)
         {
             shouldIncrease_RigWeight = false;
             rig.weight = 0f;
             leftHandIK.weight = 0f;
         }
+
+        // The model switch happens mid-equip-animation; at this point the equip is
+        // visually complete, so mark the weapon ready now rather than waiting for
+        // the WeaponEquipingIsOver anim event (which doesn't fire reliably for
+        // blend-tree child clips / when the layer weight is zeroed here).
+        player.weapon.SetWeaponReady(true);
+        Debug.Log("[Grenade] SwitchOnCurrentWeaponModel -> SetWeaponReady(true)");
     }
     public void SwitchOffWeaponModels()
     {
@@ -263,6 +292,23 @@ public class Player_WeaponVisuals : MonoBehaviour
     {
         if (CurrentWeaponModel() != null && CurrentWeaponModel().weaponType == WeaponType.Melee) return;
         shouldIncrease_LeftHandIKWieght = true;
+    }
+
+    public void EnableRigAndIK(bool enable)
+    {
+        if (enable)
+        {
+            if (CurrentWeaponModel() != null && CurrentWeaponModel().weaponType == WeaponType.Melee) return;
+            shouldIncrease_RigWeight = true;
+            shouldIncrease_LeftHandIKWieght = true;
+        }
+        else
+        {
+            shouldIncrease_RigWeight = false;
+            shouldIncrease_LeftHandIKWieght = false;
+            rig.weight = 0f;
+            leftHandIK.weight = 0f;
+        }
     }
 
     #endregion

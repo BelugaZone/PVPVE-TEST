@@ -16,6 +16,7 @@ public class MoveState_Range : EnemyState
     {
         base.Enter();
 
+        enemy.agent.isStopped = false;
         enemy.agent.speed = enemy.walkSpeed;
 
         destination = enemy.GetPatrolDestination();
@@ -33,8 +34,7 @@ public class MoveState_Range : EnemyState
 
         enemy.FaceTarget(GetNextPathPoint());
 
-
-        if (enemy.agent.remainingDistance <= enemy.agent.stoppingDistance + .05f)
+        if (!enemy.agent.pathPending && enemy.agent.remainingDistance <= enemy.agent.stoppingDistance + .05f)
             stateMachine.ChangeState(enemy.idleState);
     }
 }
