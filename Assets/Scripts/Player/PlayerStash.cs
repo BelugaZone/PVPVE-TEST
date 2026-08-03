@@ -52,6 +52,13 @@ public class PlayerStash : NetworkBehaviour
                 panel.gameObject.SetActive(true);
                 panel.Build(this);
             }
+            // Build + show the room panel for the owning client.
+            var roomPanel = GetComponentInChildren<UI_RoomPanel>(true);
+            if (roomPanel != null)
+            {
+                roomPanel.gameObject.SetActive(true);
+                roomPanel.Build();
+            }
             // Ensure the cursor is free for UI interaction in the lobby.
             UnityEngine.Cursor.lockState = CursorLockMode.None;
             UnityEngine.Cursor.visible = true;
