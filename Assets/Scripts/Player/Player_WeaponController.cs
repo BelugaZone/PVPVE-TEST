@@ -306,7 +306,12 @@ public void SpawnGrenade()
         Debug.Log($"[Grenade] EquipWeapon -> currentWeapon={currentWeapon.weaponType} ready set false");
         player.weaponVisuals.PlayWeaponEquipAnimation();
 
-        CameraManager.instance.ChangeCameraDistance(currentWeapon.cameraDistance);
+        // Phase 0: CameraManager only exists in the Game scene. In the Lobby scene the full
+        // Player prefab still initializes its inventory (firing EquipWeapon via SyncList
+        // callback), so guard against the missing singleton. Phase 1's dedicated lobby body
+        // removes the Player gameplay scripts from the lobby entirely.
+        if (CameraManager.instance != null)
+            CameraManager.instance.ChangeCameraDistance(currentWeapon.cameraDistance);
 
         if (base.IsOwner)
         {

@@ -10,6 +10,12 @@ public class ServerDataManager : NetworkBehaviour
     [Tooltip("The player prefab to spawn for authenticated clients.")]
     public NetworkObject playerPrefab;
 
+    [Tooltip("Stripped player prefab spawned in the Lobby scene (has PlayerStash, no gameplay).")]
+    public NetworkObject lobbyPlayerPrefab;
+
+    [Tooltip("Default stash contents for a new player.")]
+    public DefaultLoadout defaultLoadout;
+
     [Tooltip("Default spawn point for new players.")]
     public Transform defaultSpawnPoint;
 
@@ -20,11 +26,21 @@ public class ServerDataManager : NetworkBehaviour
 
     public static ServerDataManager Instance;
 
+    [Tooltip("Spawn point used when the player is in the Lobby scene.")]
+    public Transform lobbySpawnPoint;
+
+    [Tooltip("Name of the Lobby scene, used to pick the spawn point.")]
+    public string lobbySceneName = "Lobby";
+
     private void Awake()
     {
         if (Instance == null) Instance = this;
-        else Destroy(gameObject);
+        else { Destroy(gameObject); return; }
 
+        // NOTE: Do NOT call DontDestroyOnLoad here — FishNet forbids it inside a
+        // NetworkBehaviour (error FN0002). Persistence is handled by parenting this
+        // component onto the NetworkManager GameObject (Task 4 setup tool), whose own
+        // _dontDestroyOnLoad flag (true by default) keeps it alive across scene loads.
         _saveFilePath = Path.Combine(Application.persistentDataPath, "server_players_data.json");
     }
 
@@ -54,7 +70,30 @@ public class ServerDataManager : NetworkBehaviour
             base.NetworkManager.SceneManager.OnClientLoadedStartScenes -= SceneManager_OnClientLoadedStartScenes;
             base.NetworkManager.ServerManager.OnRemoteConnectionState -= ServerManager_OnRemoteConnectionState;
         }
+        // Flush every live PlayerStash (lobby bodies) back into the data map before saving,
+        // otherwise stopping play-mode drops the in-memory SyncList state without persisting.
+        FlushAllStashes();
         SaveAllData();
+    }
+
+    private void FlushAllStashes()
+    {
+        var stashes = FindObjectsOfType<PlayerStash>();
+        foreach (var stash in stashes)
+        {
+            string id = null;
+            // The LobbyPlayer may not carry a Player component; resolve id via the connection.
+            var p = stash.GetComponent<Player>();
+            if (p != null && !string.IsNullOrEmpty(p.playerID)) id = p.playerID;
+            if (id == null && _authenticator != null)
+            {
+                var nob = stash.NetworkObject;
+                if (nob != null && nob.Owner != null)
+                    id = _authenticator.GetIDForConnection(nob.Owner);
+            }
+            if (!string.IsNullOrEmpty(id) && _playerDataMap.TryGetValue(id, out var d))
+                stash.SaveInto(d);
+        }
     }
 
     private void SceneManager_OnClientLoadedStartScenes(NetworkConnection conn, bool asServer)
@@ -82,21 +121,16 @@ public class ServerDataManager : NetworkBehaviour
 
     private void SpawnPlayerForConnection(NetworkConnection conn, string playerID)
     {
-        if (playerPrefab == null)
-        {
-            Debug.LogError("[ServerDataManager] Player Prefab is not assigned!");
-            return;
-        }
-
         bool isNewProfile = false;
         // 1. Get or Create Data
         if (!_playerDataMap.TryGetValue(playerID, out PlayerSaveData data))
         {
             data = new PlayerSaveData(playerID);
             data.health = 100; // Default health
-            data.position = defaultSpawnPoint != null ? defaultSpawnPoint.position : Vector3.zero;
-            data.rotation = defaultSpawnPoint != null ? defaultSpawnPoint.rotation : Quaternion.identity;
-            
+            Transform spawn = ResolveSpawnPoint();
+            data.position = spawn != null ? spawn.position : Vector3.zero;
+            data.rotation = spawn != null ? spawn.rotation : Quaternion.identity;
+
             // Add some starter items here if needed, or let PlayerInventory handle defaults
             _playerDataMap[playerID] = data;
             isNewProfile = true;
@@ -107,39 +141,61 @@ public class ServerDataManager : NetworkBehaviour
             Debug.Log($"[ServerDataManager] Loaded existing profile for '{playerID}'.");
         }
 
-        // 2. Instantiate Prefab
-        NetworkObject playerObj = Instantiate(playerPrefab, data.position, data.rotation);
-
-        // 3. Inject Data before spawning (so SyncVars can be set)
-        Player playerComponent = playerObj.GetComponent<Player>();
-        if (playerComponent != null)
+        // 2. Choose prefab by scene: Lobby -> LobbyPlayer (stash), Game -> full Player.
+        bool inLobby = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == lobbySceneName;
+        NetworkObject prefabToUse = inLobby && lobbyPlayerPrefab != null ? lobbyPlayerPrefab : playerPrefab;
+        if (prefabToUse == null)
         {
-            playerComponent.playerID = playerID;
-            
-            // Initialize Health
-            Player_Health healthComponent = playerObj.GetComponent<Player_Health>();
-            if (healthComponent != null)
-            {
-                healthComponent.ServerInitialize(data.health);
-            }
+            Debug.LogError("[ServerDataManager] No player prefab for scene " + (inLobby ? "Lobby" : "Game"));
+            return;
+        }
 
-            // Initialize Inventory
-            PlayerInventory inventory = playerObj.GetComponent<PlayerInventory>();
-            if (inventory != null)
+        Transform spawnPt = ResolveSpawnPoint();
+        Vector3 pos = isNewProfile ? (spawnPt != null ? spawnPt.position : Vector3.zero)
+                                   : data.position;
+        Quaternion rot = isNewProfile ? (spawnPt != null ? spawnPt.rotation : Quaternion.identity)
+                                      : data.rotation;
+        NetworkObject playerObj = Instantiate(prefabToUse, pos, rot);
+
+        // 3. Inject data before spawning.
+        if (inLobby)
+        {
+            PlayerStash stash = playerObj.GetComponent<PlayerStash>();
+            if (stash != null)
             {
-                if (isNewProfile)
+                stash.ServerInitialize(data, defaultLoadout);
+            }
+            // Set playerID on a Player component if present (LobbyPlayer may not have one).
+            var pComp = playerObj.GetComponent<Player>();
+            if (pComp != null) pComp.playerID = playerID;
+        }
+        else
+        {
+            Player playerComponent = playerObj.GetComponent<Player>();
+            if (playerComponent != null)
+            {
+                playerComponent.playerID = playerID;
+                Player_Health healthComponent = playerObj.GetComponent<Player_Health>();
+                if (healthComponent != null) healthComponent.ServerInitialize(data.health);
+                PlayerInventory inventory = playerObj.GetComponent<PlayerInventory>();
+                if (inventory != null)
                 {
-                    inventory.SeedServer();
-                }
-                else
-                {
-                    inventory.ServerInitialize(data);
+                    if (isNewProfile) inventory.SeedServer();
+                    else inventory.ServerInitialize(data);
                 }
             }
         }
 
         // 4. Spawn over network
         base.ServerManager.Spawn(playerObj, conn);
+    }
+
+    private Transform ResolveSpawnPoint()
+    {
+        string active = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        if (active == lobbySceneName && lobbySpawnPoint != null)
+            return lobbySpawnPoint;
+        return defaultSpawnPoint;
     }
 
     private void ServerManager_OnRemoteConnectionState(NetworkConnection conn, FishNet.Transporting.RemoteConnectionStateArgs args)
@@ -149,20 +205,41 @@ public class ServerDataManager : NetworkBehaviour
             // The client disconnected. Let's find their player object and save its state.
             if (conn.FirstObject != null)
             {
+                // Works for both full Player (Game) and LobbyPlayer (Lobby) which carries a Player shell.
                 Player player = conn.FirstObject.GetComponent<Player>();
+                PlayerStash stash = conn.FirstObject.GetComponent<PlayerStash>();
                 if (player != null && _authenticator != null)
                 {
                     string playerID = _authenticator.GetIDForConnection(conn);
                     if (!string.IsNullOrEmpty(playerID))
-                    {
                         SavePlayerState(playerID, player);
-                    }
+                }
+                else if (stash != null && _authenticator != null)
+                {
+                    // LobbyPlayer without a Player component: save stash directly.
+                    string playerID = _authenticator.GetIDForConnection(conn);
+                    if (!string.IsNullOrEmpty(playerID) && _playerDataMap.TryGetValue(playerID, out var d))
+                        stash.SaveInto(d);
                 }
             }
             
             // Periodically save all data when someone disconnects
             SaveAllData();
         }
+    }
+
+    /// <summary>Resolves the authenticated player ID for a spawned NetworkObject's owner.</summary>
+    public string GetIDForNetworkObject(FishNet.Object.NetworkObject nob)
+    {
+        if (nob == null || _authenticator == null) return null;
+        if (nob.Owner == null) return null;
+        return _authenticator.GetIDForConnection(nob.Owner);
+    }
+
+    /// <summary>Tries to get a player's save data (used by PlayerStash.OnStopServer).</summary>
+    public bool TryGetData(string playerID, out PlayerSaveData data)
+    {
+        return _playerDataMap.TryGetValue(playerID, out data);
     }
 
     public void SavePlayerState(string playerID, Player player)
@@ -219,6 +296,13 @@ public class ServerDataManager : NetworkBehaviour
             }
         }
 
+        // Save stash (lobby player body).
+        PlayerStash stashComp = player.GetComponent<PlayerStash>();
+        if (stashComp != null)
+        {
+            stashComp.SaveInto(data);
+        }
+
         Debug.Log($"[ServerDataManager] Saved state for '{playerID}'.");
     }
 
@@ -230,7 +314,8 @@ public class ServerDataManager : NetworkBehaviour
             data.equipment.Clear();
             data.health = 100;
             data.isRespawn = true;
-            Debug.Log($"[ServerDataManager] Cleared state for '{playerID}' (marked as respawn).");
+            // NOTE: data.stash is intentionally preserved — death loses in-raid items only.
+            Debug.Log($"[ServerDataManager] Cleared in-raid state for '{playerID}' (stash preserved).");
         }
     }
 

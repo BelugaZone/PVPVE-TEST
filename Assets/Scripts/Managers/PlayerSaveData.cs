@@ -18,6 +18,12 @@ public class PlayerSaveData
     public List<InventoryItemData> backpack = new List<InventoryItemData>();
     public List<InventoryItemData> equipment = new List<InventoryItemData>();
 
+    // Phase 1: cross-match stash (persisted) + loadout (memory-only, not serialized by JsonUtility
+    // because we clear them before save — but the fields exist for runtime use).
+    public List<InventoryItemData> stash = new List<InventoryItemData>();
+    public List<InventoryItemData> loadoutEquip = new List<InventoryItemData>();
+    public List<InventoryItemData> loadoutBackpack = new List<InventoryItemData>();
+
     public PlayerSaveData() { }
 
     public PlayerSaveData(string id)

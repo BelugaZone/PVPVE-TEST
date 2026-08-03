@@ -146,27 +146,12 @@ public class MatchManager : NetworkBehaviour
 
     private IEnumerator RestartMatchRoutine(float delay)
     {
-        Debug.Log($"[MatchManager] Restarting match in {delay} seconds...");
-        yield return new WaitForSeconds(delay);
-
-        Debug.Log("[MatchManager] Reloading scene now...");
-
-        // 完全抛弃 FishNet 的 SceneManager 场景同步
-        // 直接暴力且安全地关闭当前连接，并使用 Unity 原生 API 重新加载整个物理场景
-        var nm = FishNet.InstanceFinder.NetworkManager;
-        if (nm != null)
-        {
-            if (nm.IsServerStarted) nm.ServerManager.StopConnection(true);
-            if (nm.IsClientStarted) nm.ClientManager.StopConnection();
-            
-            // 彻底销毁 NetworkManager 实例，保证场景重载时生成全新的实例（避免单例冲突导致卡死）
-            Destroy(nm.gameObject);
-        }
-        
-        // 等待一小会儿确保网络连接完全断开释放端口
-        yield return new WaitForSeconds(0.5f);
-        
-        Debug.Log("[MatchManager] Fully resetting scene via Unity SceneManager...");
-        UnityEngine.SceneManagement.SceneManager.LoadScene(gameObject.scene.buildIndex);
+        // Phase 0: the lobby/matchflow refactor moves to a long-lived NetworkManager
+        // and RoomManager-driven scene transitions (Phase 3). The old hard-reload path
+        // (stop connection + destroy NM + Unity scene reload) would tear down the new
+        // foundation, so it is disabled here. Phase 3 replaces this with a real
+        // return-to-lobby via FishNet SceneManager.
+        Debug.LogWarning("[MatchManager] RestartMatchRoutine is disabled in Phase 0 (lobby/matchflow refactor). Match-end return-to-lobby arrives in Phase 3.");
+        yield break;
     }
 }

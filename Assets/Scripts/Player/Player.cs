@@ -43,10 +43,35 @@ public class Player : NetworkBehaviour
     public override void OnStartClient()
     {
         base.OnStartClient();
+
+        // Phase 0: the full Player prefab is spawned in the Lobby scene, but its gameplay
+        // scripts (Aim/Movement/WeaponVisuals/FOV/Interaction) depend on Game-scene context
+        // (camera, weapon models, etc.) that does not exist in the Lobby. Disable those
+        // components so they don't run per-frame Update/LateUpdate and NRE. Inventory and
+        // Health are kept (Phase 1 will replace this with a dedicated stripped lobby body).
+        bool inLobby = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Lobby";
+        if (inLobby)
+        {
+            DisableBehaviour(aim);
+            DisableBehaviour(movement);
+            DisableBehaviour(weaponVisuals);
+            DisableBehaviour(fov);
+            DisableBehaviour(interaction);
+            // weapon (Player_WeaponController) is needed by inventory init, but its Shoot/
+            // camera calls are gated; leave it enabled, its per-frame work only runs when
+            // isShooting/isMeleeAttackReady are set, which won't happen in the lobby.
+            if (anim != null) anim.enabled = false;
+        }
+
         if (base.IsOwner)
         {
             controls.Enable();
         }
+    }
+
+    private void DisableBehaviour(MonoBehaviour nb)
+    {
+        if (nb != null) nb.enabled = false;
     }
 
     public override void OnStopServer()
