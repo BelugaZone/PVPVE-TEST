@@ -3,6 +3,7 @@ using UnityEngine;
 public class AbilityState_Boss : EnemyState
 {
     private Enemy_Boss enemy;
+    private bool isStopping;
 
     public AbilityState_Boss(Enemy enemyBase, EnemyStateMachine stateMachine, string animBoolName) : base(enemyBase, stateMachine, animBoolName)
     {
@@ -14,10 +15,11 @@ public class AbilityState_Boss : EnemyState
         base.Enter();
 
         stateTimer = enemy.flamethrowDuration;
+        isStopping = false;
 
         enemy.agent.isStopped = true;
         enemy.agent.velocity = Vector3.zero;
-        enemy.bossVisuals.EnableWeaponTrail(true);
+        enemy.RpcEnableWeaponTrail(true);
     }
 
     public override void Update()
@@ -27,10 +29,17 @@ public class AbilityState_Boss : EnemyState
         if (enemy.player != null)
             enemy.FaceTarget(enemy.player.position);
 
-        if (ShouldDisableFlamethrower())
+        if (!isStopping && ShouldDisableFlamethrower())
+        {
             DisableFlamethrower();
+            if (enemy.bossWeaponType == BossWeaponType.Flamethrower)
+            {
+                isStopping = true;
+                stateTimer = 1.5f; // Fallback timer in case animation event is missing
+            }
+        }
 
-        if (triggerCalled)
+        if (triggerCalled || (isStopping && stateTimer < 0))
             stateMachine.ChangeState(enemy.moveState);
     }
 
@@ -54,8 +63,8 @@ public class AbilityState_Boss : EnemyState
         if (enemy.bossWeaponType == BossWeaponType.Flamethrower)
         {
             enemy.ActivateFlamethrower(true);
-            enemy.bossVisuals.DischargeBatteries();
-            enemy.bossVisuals.EnableWeaponTrail(false);
+            enemy.RpcDischargeBatteries();
+            enemy.RpcEnableWeaponTrail(false);
         }
 
         if (enemy.bossWeaponType == BossWeaponType.Hummer)
@@ -68,6 +77,6 @@ public class AbilityState_Boss : EnemyState
     {
         base.Exit();
         enemy.SetAbilityOnCooldown();
-        enemy.bossVisuals.ResetBatteries();
+        enemy.RpcResetBatteries();
     }
 }

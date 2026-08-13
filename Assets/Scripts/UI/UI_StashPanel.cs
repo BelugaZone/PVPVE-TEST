@@ -42,6 +42,11 @@ public class UI_StashPanel : MonoBehaviour
         float stashCenterX = -(WindowW / 2f - SidePad - StashGridW / 2f);
         var stashRoot = CreateRect("StashGrid", content, new Vector2(0, 0.5f), new Vector2(0, 0.5f),
             new Vector2(SidePad + StashGridW / 2f, 0), new Vector2(StashGridW, WindowH - 80));
+        var stashImg = stashRoot.gameObject.AddComponent<Image>();
+        stashImg.color = new Color(0, 0, 0, 0);
+        var stashDropZone = stashRoot.gameObject.AddComponent<UI_GridDropZone>();
+        stashDropZone.Setup(stash, GridDropZoneType.StashStash);
+        
         BuildStashGrid(stashRoot);
         AddHeader(content, "仓库 (Stash)", new Vector2(stashCenterX, WindowH / 2f - 20f), StashGridW);
 
@@ -52,6 +57,11 @@ public class UI_StashPanel : MonoBehaviour
         float loadoutCenterX = (WindowW / 2f - SidePad - LoadoutPanelW / 2f);
         var loadoutRoot = CreateRect("LoadoutPanel", content, new Vector2(1, 0.5f), new Vector2(1, 0.5f),
             new Vector2(-(SidePad + LoadoutPanelW / 2f), 0), new Vector2(LoadoutPanelW, WindowH - 80));
+        var loadoutImg = loadoutRoot.gameObject.AddComponent<Image>();
+        loadoutImg.color = new Color(0, 0, 0, 0);
+        var loadoutDropZone = loadoutRoot.gameObject.AddComponent<UI_GridDropZone>();
+        loadoutDropZone.Setup(stash, GridDropZoneType.StashBackpack);
+        
         BuildLoadoutEquip(loadoutRoot);
         BuildLoadoutBackpack(loadoutRoot);
         AddHeader(content, "配装 (Loadout)", new Vector2(loadoutCenterX, WindowH / 2f - 20f), LoadoutPanelW);

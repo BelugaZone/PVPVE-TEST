@@ -27,7 +27,19 @@ public class UI_AmmoRing : MonoBehaviour
     {
         if (player == null || player.weapon == null) return;
         Weapon w = player.weapon.CurrentWeapon();
-        if (w == null) return;
+        
+        bool hasWeapon = (w != null);
+
+        if (ringBg != null && ringBg.gameObject.activeSelf != hasWeapon) 
+            ringBg.gameObject.SetActive(hasWeapon);
+        if (ring != null && ring.gameObject.activeSelf != hasWeapon) 
+            ring.gameObject.SetActive(hasWeapon);
+        if (magText != null && magText.gameObject.activeSelf != hasWeapon) 
+            magText.gameObject.SetActive(hasWeapon);
+        if (nameText != null && nameText.gameObject.activeSelf != hasWeapon) 
+            nameText.gameObject.SetActive(hasWeapon);
+
+        if (!hasWeapon) return;
 
         if (ring != null)
         {
@@ -62,17 +74,18 @@ public class UI_AmmoRing : MonoBehaviour
             nameText.text = w.weaponData.weaponName;
     }
 
+    // Weapon-specific colors keyed by weaponName, falling back to WeaponType.
     private static Color ColorFor(WeaponType t)
     {
         switch (t)
         {
-            case WeaponType.Pistol:
-            case WeaponType.Revolver:   return new Color(0.9f, 0.8f, 0.2f);
-            case WeaponType.AutoRifle:
-            case WeaponType.Rifle:      return new Color(0.9f, 0.5f, 0.2f);
-            case WeaponType.Shotgun:    return new Color(0.9f, 0.3f, 0.3f);
-            case WeaponType.Melee:      return new Color(0.5f, 0.5f, 0.5f, 0.5f);
-            case WeaponType.Grenade:    return new Color(0.3f, 0.8f, 0.3f);
+            case WeaponType.Pistol:     return new Color(0.5f, 0.5f, 0.5f);       // Heaven — 灰
+            case WeaponType.Revolver:   return new Color(1.0f, 0.85f, 0.0f);      // Bolt — 黄
+            case WeaponType.AutoRifle:  return new Color(0.2f, 0.8f, 0.2f);       // Blaste — 绿
+            case WeaponType.Rifle:      return new Color(0.5f, 0.0f, 0.8f);       // Stinger — 紫
+            case WeaponType.Shotgun:    return new Color(0.55f, 0.27f, 0.07f);    // Shotgun — 棕
+            case WeaponType.Melee:      return new Color(0.05f, 0.05f, 0.05f);    // Melee — 黑
+            case WeaponType.Grenade:    return new Color(0.8f, 0.1f, 0.1f);       // Grenade — 红
             default:                    return Color.white;
         }
     }

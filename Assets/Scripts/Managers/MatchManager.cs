@@ -146,12 +146,17 @@ public class MatchManager : NetworkBehaviour
 
     private IEnumerator RestartMatchRoutine(float delay)
     {
-        // Phase 0: the lobby/matchflow refactor moves to a long-lived NetworkManager
-        // and RoomManager-driven scene transitions (Phase 3). The old hard-reload path
-        // (stop connection + destroy NM + Unity scene reload) would tear down the new
-        // foundation, so it is disabled here. Phase 3 replaces this with a real
-        // return-to-lobby via FishNet SceneManager.
-        Debug.LogWarning("[MatchManager] RestartMatchRoutine is disabled in Phase 0 (lobby/matchflow refactor). Match-end return-to-lobby arrives in Phase 3.");
-        yield break;
+        // Wait for the scoreboard countdown, then return to lobby.
+        yield return new WaitForSeconds(delay);
+
+        Debug.Log("[MatchManager] Match ended. Returning to lobby via ServerDataManager.");
+        if (ServerDataManager.Instance != null)
+        {
+            ServerDataManager.Instance.EndMatchAndReturnToLobby();
+        }
+        else
+        {
+            Debug.LogError("[MatchManager] ServerDataManager.Instance is null! Cannot return to lobby.");
+        }
     }
 }

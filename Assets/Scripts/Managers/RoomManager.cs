@@ -18,6 +18,24 @@ public class RoomManager : NetworkBehaviour
     public readonly SyncList<int> MemberClientIds = new SyncList<int>();
     public readonly SyncVar<int> MaxMembers = new SyncVar<int>(4);
 
+    // Static state save/restore across scene transitions (RoomManager is destroyed when
+    // Lobby unloads and re-created when it reloads; these survive the transition).
+    private static RoomState _savedState;
+    private static int _savedOwnerClientId;
+    private static int[] _savedMembers;
+    private static bool _hasSavedState = false;
+
+    /// <summary>Called by ServerDataManager.EndMatchAndReturnToLobby: reset the saved room
+    /// state to Empty so players can create a fresh room. The previous room is dissolved
+    /// on match end — players re-create/join in the lobby.</summary>
+    public static void SetSavedStateForLobbyReturn()
+    {
+        _savedState = RoomState.Empty;
+        _savedOwnerClientId = -1;
+        _savedMembers = new int[0];
+        _hasSavedState = true;
+    }
+
     // SyncVar change callbacks so clients refresh the UI when state/members change.
     public event System.Action OnRoomChanged;
 
@@ -30,7 +48,19 @@ public class RoomManager : NetworkBehaviour
     public override void OnStartServer()
     {
         base.OnStartServer();
-        State.Value = RoomState.Empty;
+        if (_hasSavedState)
+        {
+            State.Value = _savedState;
+            OwnerClientId.Value = _savedOwnerClientId;
+            MemberClientIds.Clear();
+            foreach (var m in _savedMembers) MemberClientIds.Add(m);
+            _hasSavedState = false; // consumed
+            Debug.Log("[RoomManager] Restored room state from static.");
+        }
+        else
+        {
+            State.Value = RoomState.Empty;
+        }
         base.NetworkManager.ServerManager.OnRemoteConnectionState += HandleRemoteConnectionState;
     }
 
@@ -131,8 +161,23 @@ public class RoomManager : NetworkBehaviour
             Debug.Log("[RoomManager] Cannot start: no members.");
             return;
         }
-        // Phase 2 stub: validate only. Phase 3 will set InMatch + load the Game scene.
-        Debug.Log($"[RoomManager] StartMatch validated (owner={clientId}, members={MemberClientIds.Count}). Scene transition arrives in Phase 3.");
+
+        // Save room state to static (RoomManager will be destroyed when Lobby unloads).
+        _savedState = RoomState.InMatch;
+        _savedOwnerClientId = OwnerClientId.Value;
+        _savedMembers = new int[MemberClientIds.Count];
+        for (int i = 0; i < MemberClientIds.Count; i++) _savedMembers[i] = MemberClientIds[i];
+        _hasSavedState = true;
+
+        Debug.Log($"[RoomManager] StartMatch: owner={clientId}, members={MemberClientIds.Count}. Loading Game scene.");
+
+        // Delegate to ServerDataManager: move loadout→in-raid, load Game scene, spawn players.
+        if (ServerDataManager.Instance != null)
+        {
+            var memberList = new System.Collections.Generic.List<int>();
+            foreach (var m in MemberClientIds) memberList.Add(m);
+            ServerDataManager.Instance.StartMatchForMembers(memberList);
+        }
     }
 
     // --- Disconnect handling: remove member, transfer/empty room ---

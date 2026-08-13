@@ -13,7 +13,7 @@ public class PlayerInventory : NetworkBehaviour
     [SerializeField] private ItemData[] starterBackpackItems;
     [SerializeField] private GameObject hudPrefab;
     [SerializeField] private GameObject panelPrefab;
-    [SerializeField] private ItemRegistry itemRegistry; // Used to lookup ItemData by ID
+    [SerializeField] internal ItemRegistry itemRegistry; // Used to lookup ItemData by ID
 
     private Player player;
     private Player_WeaponController weaponController;
@@ -193,9 +193,17 @@ public class PlayerInventory : NetworkBehaviour
     {
         RebuildLocalEquipment();
         OnChanged?.Invoke();
-        
+
+        if (weaponController == null) return;
+
+        if (op == SyncListOperation.Clear)
+        {
+            weaponController.ClearAllWeapons();
+            return;
+        }
+
         // Sync the actual weapon controller locally
-        if (index >= 0 && index < EquipSlotCount && weaponController != null)
+        if (index >= 0 && index < EquipSlotCount)
         {
             if (string.IsNullOrEmpty(newItem.itemId))
                 weaponController.ClearWeaponSlot(index);
@@ -501,6 +509,109 @@ public class PlayerInventory : NetworkBehaviour
         gameObject.AddComponent<UI_ExtractionHUD>();
         // 对局结算界面（仅本地玩家）
         gameObject.AddComponent<UI_MatchEndScreen>();
+    }
+
+    /// <summary>Re-create the HUD/Inventory UI after respawn (OnStartClient doesn't re-fire).</summary>
+    public void RebuildUI()
+    {
+        // Destroy old UI children that may be stale.
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            var child = transform.GetChild(i);
+            if (child.name.Contains("InventoryController") || child.name.Contains("HUD") || child.name.Contains("PlayerHUD"))
+                Destroy(child.gameObject);
+        }
+        // Destroy old components.
+        var oldExtraction = GetComponent<UI_ExtractionHUD>();
+        if (oldExtraction != null) Destroy(oldExtraction);
+        var oldMatchEnd = GetComponent<UI_MatchEndScreen>();
+        if (oldMatchEnd != null) Destroy(oldMatchEnd);
+
+        // Re-create the health bar FIRST — UI_HudRoot.BuildWhenReady polls for it.
+        var oldHealthBar = GetComponent<UI_HealthBar>();
+        if (oldHealthBar != null)
+        {
+            oldHealthBar.Cleanup();
+            Destroy(oldHealthBar);
+        }
+        var newHealthBar = gameObject.AddComponent<UI_HealthBar>();
+        newHealthBar.Initialize(player.health, true, true);
+
+        // Now spawn the HUD (which searches for the health bar) + inventory panel.
+        SpawnUI();
+
+        // Force-refresh the inventory panel after a frame so SyncList data is available.
+        StartCoroutine(RefreshInventoryNextFrame());
+    }
+
+    private System.Collections.IEnumerator RefreshInventoryNextFrame()
+    {
+        yield return null; // Wait one frame for SyncList to sync.
+        // The UI_InventoryController builds the panel in Init; the panel subscribes to OnChanged.
+        // But OnChanged may have already fired before the panel existed. Force a rebuild + refresh.
+        RebuildLocalBackpack();
+        RebuildLocalEquipment();
+        OnChanged?.Invoke();
+    }
+
+    /// <summary>Restore un-looted items back to inventory after respawn (server-side).</summary>
+    public void RestoreLootItems(List<Enemy_LootContainer.LootSlot> items)
+    {
+        if (!IsServer) return;
+
+        // Ensure SyncLists have correct capacity (DropAllItems may have cleared them).
+        while (netBackpack.Count < BackpackCapacity)
+            netBackpack.Add(new NetItem { itemId = "", count = 0 });
+        while (netEquipment.Count < EquipSlotCount)
+            netEquipment.Add(new NetItem { itemId = "", count = 0 });
+
+        Debug.Log($"[PlayerInventory] RestoreLootItems: {items.Count} items, netBackpack.Count={netBackpack.Count}, netEquipment.Count={netEquipment.Count}");
+        foreach (var slot in items)
+        {
+            if (string.IsNullOrEmpty(slot.itemId)) continue;
+
+            // Try to determine if it's a weapon or a regular item.
+            Weapon_Data wd = itemRegistry != null ? itemRegistry.GetWeapon(slot.itemId) : null;
+            Debug.Log($"[PlayerInventory] RestoreLootItems: itemId={slot.itemId} count={slot.count} isWeapon={wd!=null}");
+            if (wd != null)
+            {
+                // Weapon: try equip slot 0/1, else backpack.
+                bool placed = false;
+                for (int i = 0; i < 2; i++)
+                {
+                    if (i < netEquipment.Count && string.IsNullOrEmpty(netEquipment[i].itemId))
+                    {
+                        netEquipment[i] = new NetItem { itemId = slot.itemId, count = slot.count, isWeaponOnly = true, ammoInMag = -1, ammoReserve = -1 };
+                        placed = true;
+                        Debug.Log($"[PlayerInventory] RestoreLootItems: placed weapon {slot.itemId} in equip slot {i}");
+                        break;
+                    }
+                }
+                if (!placed)
+                {
+                    int bpSlot = FirstEmptyNetBackpackSlot();
+                    if (bpSlot >= 0)
+                    {
+                        netBackpack[bpSlot] = new NetItem { itemId = slot.itemId, count = slot.count, ammoInMag = -1, ammoReserve = -1 };
+                        Debug.Log($"[PlayerInventory] RestoreLootItems: placed weapon {slot.itemId} in backpack slot {bpSlot}");
+                    }
+                    else
+                        Debug.LogWarning($"[PlayerInventory] RestoreLootItems: no empty backpack slot for {slot.itemId}");
+                }
+            }
+            else
+            {
+                // Regular item: place in backpack.
+                int bpSlot = FirstEmptyNetBackpackSlot();
+                if (bpSlot >= 0)
+                {
+                    netBackpack[bpSlot] = new NetItem { itemId = slot.itemId, count = slot.count, ammoInMag = -1, ammoReserve = -1 };
+                    Debug.Log($"[PlayerInventory] RestoreLootItems: placed item {slot.itemId} in backpack slot {bpSlot}");
+                }
+                else
+                    Debug.LogWarning($"[PlayerInventory] RestoreLootItems: no empty backpack slot for {slot.itemId}");
+            }
+        }
     }
 }
 

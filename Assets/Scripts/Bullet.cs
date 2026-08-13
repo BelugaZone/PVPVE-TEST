@@ -75,8 +75,6 @@ public class Bullet : MonoBehaviour
             trailRenderer.time -= 2 * Time.deltaTime; // magic number 2 is choosen trhou testing
     }
 
-
-
     protected virtual void OnCollisionEnter(Collision collision)
     {
         if (FriendlyFare() == false)
@@ -84,7 +82,8 @@ public class Bullet : MonoBehaviour
             // Use a bitwise AND to check if the collsion layer is in the allyLayerMask
             if ((allyLayerMask.value & (1 << collision.gameObject.layer)) > 0)
             {
-                ReturnBulletToPool(10);
+                CreateImpactFx();
+                ReturnBulletToPool();
                 return;
             }
         }

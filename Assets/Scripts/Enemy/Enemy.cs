@@ -57,6 +57,13 @@ public class Enemy : NetworkBehaviour
         visuals = GetComponent<Enemy_Visuals>();
         agent = GetComponent<NavMeshAgent>();
         anim = GetComponentInChildren<Animator>();
+        
+        if (anim != null)
+        {
+            anim.applyRootMotion = false;
+            anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        }
+
         lootContainer = GetComponentInChildren<Enemy_LootContainer>();
     }
 
@@ -188,6 +195,12 @@ public class Enemy : NetworkBehaviour
     {
         base.OnStartClient();
         Debug.Log($"[Enemy.OnStartClient] on {gameObject.name}");
+
+        if (!base.IsServer)
+        {
+            if (agent != null)
+                agent.enabled = false;
+        }
 
         if (health != null && health.currentHealth.Value <= 0)
         {

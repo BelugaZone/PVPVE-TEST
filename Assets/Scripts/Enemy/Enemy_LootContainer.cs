@@ -64,7 +64,7 @@ public class Enemy_LootContainer : NetworkBehaviour
     // ──────────────────────────────────────────
     // Highlight State
     // ──────────────────────────────────────────
-    private SkinnedMeshRenderer _smr;
+    private Renderer _renderer;
     private Material _defaultMat;
     private Material _highlightMat;
 
@@ -80,11 +80,28 @@ public class Enemy_LootContainer : NetworkBehaviour
     private bool      _lootReady;
     private Transform _ragdollHip;  // The physics-driven hip bone that follows the ragdoll
 
+    // For standalone player corpses (CorpseLoot prefab): the dead player's body this
+    // container is bound to. The CorpseLoot prefab itself has no renderer and no animator,
+    // so without this link highlight can't glow the body and LootPosition can't track the
+    // ragdoll. Set on the server at spawn, synced to clients. Enemy corpses don't use this —
+    // their container lives on the enemy's own transform.root, so the mesh is found directly.
+    public readonly SyncVar<NetworkObject> corpseBody = new SyncVar<NetworkObject>();
+    private Renderer _linkedRenderer;
+
     /// <summary>
     /// World position of the loot — follows the ragdoll body even after physics moves it.
     /// Falls back to this.transform.position if no ragdoll bone was found.
     /// </summary>
-    public Vector3 LootPosition => _ragdollHip != null ? _ragdollHip.position : transform.position;
+    public Vector3 LootPosition
+    {
+        get
+        {
+            if (_ragdollHip != null) return _ragdollHip.position;
+            ResolveCorpseBody();
+            if (_ragdollHip != null) return _ragdollHip.position;
+            return transform.position;
+        }
+    }
 
     // ──────────────────────────────────────────
     // Unity / FishNet lifecycle
@@ -110,6 +127,12 @@ public class Enemy_LootContainer : NetworkBehaviour
     {
         base.OnStartClient();
         lootSlots.OnChange += HandleLootChange;
+
+        // For standalone corpses (like player corpses), enable trigger on clients too
+        if (GetComponentInParent<Enemy>() == null)
+        {
+            EnableLootTrigger();
+        }
     }
 
     public override void OnStopClient()
@@ -183,12 +206,12 @@ public class Enemy_LootContainer : NetworkBehaviour
 
     public void HighlightActive(bool active)
     {
-        if (_smr == null)
-        {
-            _smr = transform.root.GetComponentInChildren<SkinnedMeshRenderer>();
-            if (_smr != null) _defaultMat = _smr.sharedMaterial;
-        }
-        if (_smr == null) return;
+        ResolveCorpseBody();
+
+        // Prefer the linked corpse-body renderer (player corpses); fall back to a renderer
+        // on this container's own root (enemy corpses, where the container sits on the body).
+        Renderer r = _linkedRenderer ?? _renderer;
+        if (r == null) return;
 
         if (_highlightMat == null)
         {
@@ -202,8 +225,53 @@ public class Enemy_LootContainer : NetworkBehaviour
 
         if (_highlightMat != null)
         {
-            _smr.material = active ? _highlightMat : _defaultMat;
+            r.material = active ? _highlightMat : _defaultMat;
         }
+    }
+
+    /// <summary>
+    /// Lazily resolves the body renderer + ragdoll hip used for highlight and LootPosition.
+    /// For enemy corpses these live on transform.root. For standalone player corpses they
+    /// live on the synced <see cref="corpseBody"/> player object — the CorpseLoot prefab
+    /// itself has neither a renderer nor an animator, so without resolving corpseBody the
+    /// body never glows and the search prompt sits at the static death spot instead of the
+    /// ragdoll.
+    /// </summary>
+    private void ResolveCorpseBody()
+    {
+        if (_linkedRenderer == null && corpseBody.Value != null)
+        {
+            var body = corpseBody.Value;
+            Renderer rend = body.GetComponentInChildren<SkinnedMeshRenderer>();
+            if (rend == null) rend = body.GetComponentInChildren<MeshRenderer>();
+            _linkedRenderer = rend;
+            if (_linkedRenderer != null && _defaultMat == null)
+                _defaultMat = _linkedRenderer.sharedMaterial;
+
+            if (_ragdollHip == null)
+            {
+                var a = body.GetComponentInChildren<Animator>();
+                if (a != null && a.isHuman)
+                    _ragdollHip = a.GetBoneTransform(HumanBodyBones.Hips);
+            }
+        }
+
+        if (_renderer == null)
+        {
+            _renderer = transform.root.GetComponentInChildren<SkinnedMeshRenderer>();
+            if (_renderer == null)
+                _renderer = transform.root.GetComponentInChildren<MeshRenderer>();
+
+            if (_renderer != null && _defaultMat == null) _defaultMat = _renderer.sharedMaterial;
+        }
+    }
+
+    /// <summary>Server-side: bind this loot container to the dead player's body so each
+    /// client can resolve the ragdoll hip + body mesh for tracking and highlight.</summary>
+    public void LinkToCorpseBody(NetworkObject corpse)
+    {
+        if (!IsServer || corpse == null) return;
+        corpseBody.Value = corpse;
     }
 
     // ──────────────────────────────────────────
@@ -267,6 +335,13 @@ public class Enemy_LootContainer : NetworkBehaviour
         {
             Debug.LogWarning($"[Enemy_LootContainer] Slot {slotIndex} is empty.");
             return false;
+        }
+        if (itemRegistry == null)
+        {
+            // The CorpseLoot prefab (player corpses) ships without an itemRegistry assigned
+            // in the inspector. Every PlayerInventory owns one, so resolve it from the player
+            // taking the loot — otherwise taking items from player corpses silently fails.
+            if (inv != null) itemRegistry = inv.itemRegistry;
         }
         if (itemRegistry == null)
         {
@@ -422,10 +497,18 @@ public class Enemy_LootContainer : NetworkBehaviour
         return false;
     }
 
+    private void EnsureItemRegistry()
+    {
+        if (itemRegistry != null) return;
+        var playerInv = FindObjectOfType<PlayerInventory>();
+        if (playerInv != null) itemRegistry = playerInv.itemRegistry;
+    }
+
     public string GetDisplayName(int slotIndex)
     {
         if (slotIndex < 0 || slotIndex >= lootSlots.Count) return "";
         var slot = lootSlots[slotIndex];
+        EnsureItemRegistry();
         if (itemRegistry == null) return slot.itemId;
 
         ItemData   id = itemRegistry.GetItem(slot.itemId);
@@ -441,7 +524,12 @@ public class Enemy_LootContainer : NetworkBehaviour
     {
         if (slotIndex < 0 || slotIndex >= lootSlots.Count) return UI_PlaceholderIcons.White();
         var slot = lootSlots[slotIndex];
+        EnsureItemRegistry();
         if (itemRegistry == null) return UI_PlaceholderIcons.White();
+
+        // Try custom icon by itemId first (covers both ItemData.itemId and Weapon_Data.weaponName).
+        var custom = UI_PlaceholderIcons.GetCustomIcon(slot.itemId);
+        if (custom != null) return custom;
 
         ItemData id = itemRegistry.GetItem(slot.itemId);
         if (id != null)
@@ -451,5 +539,17 @@ public class Enemy_LootContainer : NetworkBehaviour
         if (wd != null) return UI_PlaceholderIcons.Get(wd.weaponType);
 
         return UI_PlaceholderIcons.White();
+    }
+
+    /// <summary>Returns all un-taken loot slots (for restoring to player on respawn).</summary>
+    public List<LootSlot> GetRemainingLoot()
+    {
+        var remaining = new List<LootSlot>();
+        foreach (var s in lootSlots)
+        {
+            if (!s.taken && !string.IsNullOrEmpty(s.itemId))
+                remaining.Add(s);
+        }
+        return remaining;
     }
 }

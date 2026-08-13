@@ -27,6 +27,17 @@ public class UI_StartScreen : MonoBehaviour
         BuildUI();
     }
 
+    private Canvas _canvas;
+
+    private void Update()
+    {
+        // Force-hide outside the Lobby by toggling the Canvas (not SetActive) so Update keeps running.
+        string activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        bool shouldBeVisible = activeScene == "Lobby";
+        if (_canvas != null && _canvas.enabled != shouldBeVisible)
+            _canvas.enabled = shouldBeVisible;
+    }
+
     private void Start()
     {
         _startServerButton.onClick.AddListener(StartServer);
@@ -38,7 +49,10 @@ public class UI_StartScreen : MonoBehaviour
 
         var nm = InstanceFinder.NetworkManager;
         if (nm != null)
+        {
             nm.ClientManager.OnClientConnectionState += OnClientConnectionState;
+            nm.ServerManager.OnServerConnectionState += OnServerConnectionState;
+        }
     }
 
     private void OnDestroy()
@@ -46,7 +60,10 @@ public class UI_StartScreen : MonoBehaviour
         CustomAuthenticator.OnClientAuthFailed -= HandleAuthFailed;
         var nm = InstanceFinder.NetworkManager;
         if (nm != null)
+        {
             nm.ClientManager.OnClientConnectionState -= OnClientConnectionState;
+            nm.ServerManager.OnServerConnectionState -= OnServerConnectionState;
+        }
     }
 
     // --- Connection actions ---
@@ -100,17 +117,30 @@ public class UI_StartScreen : MonoBehaviour
 
     // --- Connection state / auth feedback ---
 
-    private void OnClientConnectionState(ClientConnectionStateArgs args)
+    private void OnServerConnectionState(ServerConnectionStateArgs args)
     {
         if (args.ConnectionState == LocalConnectionState.Started)
-            StartCoroutine(HideAfterDelay());
-        else if (args.ConnectionState == LocalConnectionState.Stopped)
-            Show(); // disconnected / auth failed -> show again
+        {
+            SetError("Server started successfully!");
+            _startServerButton.interactable = false;
+        }
+    }
+
+    private void OnClientConnectionState(ClientConnectionStateArgs args)
+    {
+        // During scene transitions FishNet may fire transient Stopped events. Do NOT re-show
+        // the start screen on Stopped — the Update() poll controls visibility by scene name.
+        // Only react to Started (hide after auth).
+        if (args.ConnectionState != LocalConnectionState.Started)
+            return;
+
+        SetError("Connection successful! Entering game...");
+        StartCoroutine(HideAfterDelay());
     }
 
     private IEnumerator HideAfterDelay()
     {
-        yield return new WaitForSeconds(0.5f);
+        yield return new WaitForSeconds(1.0f);
         if (InstanceFinder.ClientManager.Connection.IsActive)
             Hide();
     }
@@ -122,8 +152,8 @@ public class UI_StartScreen : MonoBehaviour
         _clientButton.interactable = true;
     }
 
-    public void Show() { gameObject.SetActive(true); }
-    public void Hide() { gameObject.SetActive(false); }
+    public void Show() { _canvas.enabled = true; }
+    public void Hide() { _canvas.enabled = false; }
 
     private void SetError(string msg)
     {
@@ -134,9 +164,11 @@ public class UI_StartScreen : MonoBehaviour
 
     private void BuildUI()
     {
-        var canvas = gameObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 100;
+        _canvas = gameObject.GetComponent<Canvas>();
+        if (_canvas == null)
+            _canvas = gameObject.AddComponent<Canvas>();
+        _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        _canvas.sortingOrder = 100;
         var scaler = gameObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
@@ -233,6 +265,13 @@ public class UI_StartScreen : MonoBehaviour
         ph.font = TMPro.TMP_Settings.defaultFontAsset;
         ph.color = new Color(0.6f, 0.6f, 0.6f, 1f); ph.fontSize = 28; ph.text = placeholder;
         input.placeholder = ph;
+
+        // TMP creates the caret renderer inside OnEnable(), but only when m_TextComponent is
+        // already assigned. AddComponent fires OnEnable before we set textComponent above, so
+        // the caret never gets built and the blinking cursor is invisible even though typing
+        // works. Re-enabling now (textComponent is set) builds the caret renderer.
+        input.enabled = false;
+        input.enabled = true;
 
         return input;
     }

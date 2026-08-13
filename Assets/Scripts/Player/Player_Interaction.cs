@@ -45,7 +45,9 @@ public class Player_Interaction : MonoBehaviour
     private void Start()
     {
         _player = GetComponent<Player>();
-        _cam    = Camera.main;
+
+        // Do NOT cache Camera.main here — during scene transitions Cinemachine may not have
+        // bound the virtual camera to Main Camera yet. Fetch it lazily in UpdatePromptPosition.
 
         // E key — existing interaction
         _player.controls.Character.Interaction.performed += _ => InteractWithClosest();
@@ -207,9 +209,11 @@ public class Player_Interaction : MonoBehaviour
         Vector3 worldPos = closestContainer.LootPosition + Vector3.up * 2f;
         _promptGO.transform.position = worldPos;
 
-        // Always face the camera (billboard)
-        if (_cam != null)
-            _promptGO.transform.forward = _cam.transform.forward;
+        // Always face the camera (billboard) — fetch Camera.main each frame so we get the
+        // Cinemachine-controlled camera even if it wasn't ready at Start().
+        Camera cam = Camera.main;
+        if (cam != null)
+            _promptGO.transform.forward = cam.transform.forward;
     }
 
     // ──────────────────────────────────────────

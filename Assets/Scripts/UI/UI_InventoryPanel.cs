@@ -68,6 +68,11 @@ public class UI_InventoryPanel : MonoBehaviour
         // Backpack grid (right), flush right.
         var gridRoot = CreateRect("BackpackGrid", content, new Vector2(1, 0.5f), new Vector2(1, 0.5f),
             new Vector2(-(SidePad + GridPanelW / 2f), 0), new Vector2(GridPanelW, WindowH - 40));
+        var dropZoneImg = gridRoot.gameObject.AddComponent<Image>();
+        dropZoneImg.color = new Color(0, 0, 0, 0);
+        var dropZone = gridRoot.gameObject.AddComponent<UI_GridDropZone>();
+        dropZone.Setup(inventory);
+        
         BuildGrid(gridRoot);
         AddHeader(content, "背包", new Vector2(-(SidePad + GridPanelW / 2f), WindowH / 2f - 6f), GridPanelW);
 

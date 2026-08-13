@@ -42,6 +42,16 @@ public class UI_HealthBar : MonoBehaviour
         }
     }
 
+    public void Cleanup()
+    {
+        if (canvas != null)
+        {
+            canvas.gameObject.name = "Destroyed_PlayerHealthCanvas";
+            Destroy(canvas.gameObject);
+            canvas = null;
+        }
+    }
+
     private void OnHealthChanged(int oldHealth, int newHealth, bool asServer)
     {
         UpdateHealthUI(newHealth);

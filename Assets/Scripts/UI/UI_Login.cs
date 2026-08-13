@@ -12,6 +12,19 @@ public class UI_Login : MonoBehaviour
 
     private void Start()
     {
+        if (idInput != null)
+        {
+            idInput.customCaretColor = false;
+            if (idInput.caretWidth == 0)
+            {
+                idInput.caretWidth = 2;
+            }
+            if (idInput.caretBlinkRate == 0)
+            {
+                idInput.caretBlinkRate = 0.85f;
+            }
+        }
+
         if (loginButton != null)
         {
             loginButton.onClick.AddListener(OnLoginClicked);

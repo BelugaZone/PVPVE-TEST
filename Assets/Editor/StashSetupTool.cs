@@ -22,6 +22,7 @@ public static class StashSetupTool
         loadout.entries = new System.Collections.Generic.List<DefaultLoadout.StashEntry>
         {
             new DefaultLoadout.StashEntry { itemId = "Heaven 567", count = 1 },   // pistol (Weapon_Data.weaponName)
+            new DefaultLoadout.StashEntry { itemId = "Melee", count = 1 },        // melee (Weapon_Data.weaponName)
             new DefaultLoadout.StashEntry { itemId = "rifle_ammo", count = 2 },   // ammo (ItemData.itemId)
             new DefaultLoadout.StashEntry { itemId = "medkit", count = 2 },       // consumable
         };

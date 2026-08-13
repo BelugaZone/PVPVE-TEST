@@ -45,6 +45,11 @@ public class Player_AimController : NetworkBehaviour
         {
             cameraTarget = new GameObject("CameraTarget_" + gameObject.name).transform;
         }
+
+        // Disable the aim laser by default — only the local owner enables it in UpdateAimVisuals.
+        // This prevents non-owner players (and pre-ownership-init frames) from showing a static laser.
+        if (aimLaser != null)
+            aimLaser.enabled = false;
         
         // Ensure player and enemy layers are included in aim raycasts
         int playerLayer = LayerMask.NameToLayer("Player");
@@ -96,13 +101,9 @@ public class Player_AimController : NetworkBehaviour
         base.OnStartClient();
         if (base.IsOwner)
         {
-            Cinemachine.CinemachineVirtualCamera vcam = FindObjectOfType<Cinemachine.CinemachineVirtualCamera>();
-            if (vcam != null && cameraTarget != null)
-            {
-                cameraTarget.parent = null; // Decouple from player to avoid jitter
-                vcam.Follow = cameraTarget;
-                vcam.LookAt = null; // explicitly clear it just in case
-            }
+            // Delay camera setup — during scene transitions the Virtual Camera may not be
+            // loaded yet when OnStartClient fires. Wait a frame for the scene to settle.
+            StartCoroutine(SetupCameraDelayed());
         }
         else
         {
@@ -111,9 +112,39 @@ public class Player_AimController : NetworkBehaviour
         }
     }
 
+    private System.Collections.IEnumerator SetupCameraDelayed()
+    {
+        // Wait until the scene has a CinemachineVirtualCamera.
+        Cinemachine.CinemachineVirtualCamera vcam = null;
+        int attempts = 0;
+        while (vcam == null && attempts < 60) // ~1s max
+        {
+            vcam = FindObjectOfType<Cinemachine.CinemachineVirtualCamera>();
+            if (vcam == null) yield return null;
+            attempts++;
+        }
+        if (vcam != null && cameraTarget != null)
+        {
+            cameraTarget.parent = null; // Decouple from player to avoid jitter
+            vcam.Follow = cameraTarget;
+            vcam.LookAt = null;
+            Debug.Log($"[Player_AimController] Camera follow set to {cameraTarget.name} (vcam={vcam.gameObject.name})");
+        }
+        else
+        {
+            Debug.LogWarning($"[Player_AimController] Could not find VirtualCamera after {attempts} attempts. cameraTarget={(cameraTarget!=null?cameraTarget.name:"NULL")}");
+        }
+    }
+
     private void Update()
     {
-        if (!base.IsOwner) return;
+        // Non-owner players: keep aim laser off (it's a local-owner-only visual).
+        if (!base.IsOwner)
+        {
+            if (aimLaser != null && aimLaser.enabled)
+                aimLaser.enabled = false;
+            return;
+        }
 
         if (player.health.isDead.Value)
             return;
@@ -153,13 +184,18 @@ public class Player_AimController : NetworkBehaviour
             isMelee = true;
         }
 
-        aimLaser.enabled = player.weapon.WeaponReady() && !isMelee;
+        // Only enable laser if we actually have a weapon equipped
+        aimLaser.enabled = (currentWeapon != null) && player.weapon.WeaponReady() && !isMelee;
 
         if (aimLaser.enabled == false)
             return;
 
-
         WeaponModel weaponModel = player.weaponVisuals.CurrentWeaponModel();
+        if (weaponModel == null)
+        {
+            aimLaser.enabled = false;
+            return;
+        }
 
         weaponModel.transform.LookAt(aim);
         weaponModel.gunPoint.LookAt(aim);

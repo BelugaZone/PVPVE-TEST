@@ -54,6 +54,9 @@ Thumbs.db
 *.unitypackage
 *.app
 
+# Archives (accidentally committed pro1.7z, 2.5 GB)
+*.7z
+
 # =====================
 # Claude / VS Code
 # =====================

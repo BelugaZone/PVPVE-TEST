@@ -1,11 +1,13 @@
 using FishNet;
 using FishNet.Connection;
+using FishNet.Managing.Scened;
 using FishNet.Object;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
-public class ServerDataManager : NetworkBehaviour
+public class ServerDataManager : MonoBehaviour
 {
     [Tooltip("The player prefab to spawn for authenticated clients.")]
     public NetworkObject playerPrefab;
@@ -37,16 +39,30 @@ public class ServerDataManager : NetworkBehaviour
         if (Instance == null) Instance = this;
         else { Destroy(gameObject); return; }
 
-        // NOTE: Do NOT call DontDestroyOnLoad here — FishNet forbids it inside a
-        // NetworkBehaviour (error FN0002). Persistence is handled by parenting this
-        // component onto the NetworkManager GameObject (Task 4 setup tool), whose own
-        // _dontDestroyOnLoad flag (true by default) keeps it alive across scene loads.
+        // Persist across scene loads. Now legal — plain MonoBehaviour, not NetworkBehaviour.
+        // (FishNet FN0002 forbids DontDestroyOnLoad inside a NetworkBehaviour.)
+        DontDestroyOnLoad(gameObject);
         _saveFilePath = Path.Combine(Application.persistentDataPath, "server_players_data.json");
     }
 
-    public override void OnStartServer()
+    private void OnDestroy()
     {
-        base.OnStartServer();
+        // Guard: if this instance was destroyed as a duplicate in Awake, _saveFilePath is null
+        // and there's nothing to save. Also skip if Instance is no longer this.
+        if (Instance != this) return;
+        if (string.IsNullOrEmpty(_saveFilePath)) return;
+
+        if (FishNet.InstanceFinder.NetworkManager != null)
+        {
+            FishNet.InstanceFinder.NetworkManager.SceneManager.OnClientLoadedStartScenes -= SceneManager_OnClientLoadedStartScenes;
+            FishNet.InstanceFinder.NetworkManager.ServerManager.OnRemoteConnectionState -= ServerManager_OnRemoteConnectionState;
+        }
+        FlushAllStashes();
+        SaveAllData();
+    }
+
+    private void Start()
+    {
         LoadAllData();
 
         _authenticator = FindObjectOfType<CustomAuthenticator>();
@@ -56,24 +72,10 @@ public class ServerDataManager : NetworkBehaviour
         }
 
         // Listen for when a client finishes loading the scene so we can spawn them
-        base.NetworkManager.SceneManager.OnClientLoadedStartScenes += SceneManager_OnClientLoadedStartScenes;
-        
-        // Listen for disconnects to save their state
-        base.NetworkManager.ServerManager.OnRemoteConnectionState += ServerManager_OnRemoteConnectionState;
-    }
+        FishNet.InstanceFinder.NetworkManager.SceneManager.OnClientLoadedStartScenes += SceneManager_OnClientLoadedStartScenes;
 
-    public override void OnStopServer()
-    {
-        base.OnStopServer();
-        if (base.NetworkManager != null)
-        {
-            base.NetworkManager.SceneManager.OnClientLoadedStartScenes -= SceneManager_OnClientLoadedStartScenes;
-            base.NetworkManager.ServerManager.OnRemoteConnectionState -= ServerManager_OnRemoteConnectionState;
-        }
-        // Flush every live PlayerStash (lobby bodies) back into the data map before saving,
-        // otherwise stopping play-mode drops the in-memory SyncList state without persisting.
-        FlushAllStashes();
-        SaveAllData();
+        // Listen for disconnects to save their state
+        FishNet.InstanceFinder.NetworkManager.ServerManager.OnRemoteConnectionState += ServerManager_OnRemoteConnectionState;
     }
 
     private void FlushAllStashes()
@@ -114,12 +116,12 @@ public class ServerDataManager : NetworkBehaviour
         // Explicitly adding the connection to the active scene ensures the Default Scene Condition passes,
         // allowing the client to observe enemies and other players.
         var activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-        base.NetworkManager.SceneManager.AddConnectionToScene(conn, activeScene);
+        FishNet.InstanceFinder.NetworkManager.SceneManager.AddConnectionToScene(conn, activeScene);
 
         SpawnPlayerForConnection(conn, playerID);
     }
 
-    private void SpawnPlayerForConnection(NetworkConnection conn, string playerID)
+    public void SpawnPlayerForConnection(NetworkConnection conn, string playerID)
     {
         bool isNewProfile = false;
         // 1. Get or Create Data
@@ -163,7 +165,7 @@ public class ServerDataManager : NetworkBehaviour
             PlayerStash stash = playerObj.GetComponent<PlayerStash>();
             if (stash != null)
             {
-                stash.ServerInitialize(data, defaultLoadout);
+                stash.ServerInitialize(data, defaultLoadout, isNewProfile);
             }
             // Set playerID on a Player component if present (LobbyPlayer may not have one).
             var pComp = playerObj.GetComponent<Player>();
@@ -187,10 +189,10 @@ public class ServerDataManager : NetworkBehaviour
         }
 
         // 4. Spawn over network
-        base.ServerManager.Spawn(playerObj, conn);
+        FishNet.InstanceFinder.ServerManager.Spawn(playerObj, conn);
     }
 
-    private Transform ResolveSpawnPoint()
+    public Transform ResolveSpawnPoint()
     {
         string active = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
         if (active == lobbySceneName && lobbySpawnPoint != null)
@@ -317,6 +319,150 @@ public class ServerDataManager : NetworkBehaviour
             // NOTE: data.stash is intentionally preserved — death loses in-raid items only.
             Debug.Log($"[ServerDataManager] Cleared in-raid state for '{playerID}' (stash preserved).");
         }
+    }
+
+    // --- Match transition (Phase 3) ---
+
+    /// <summary>Called by RoomManager.CmdStartMatch. Moves loadout→in-raid, loads Game scene, spawns players.</summary>
+    public void StartMatchForMembers(System.Collections.Generic.List<int> memberClientIds)
+    {
+        // 1. For each member: flush their PlayerStash SyncLists → PlayerSaveData, then move loadout → in-raid.
+        foreach (int clientId in memberClientIds)
+        {
+            var conn = FindConnectionByClientId(clientId);
+            if (conn == null) continue;
+            string id = _authenticator != null ? _authenticator.GetIDForConnection(conn) : null;
+            if (id != null && _playerDataMap.TryGetValue(id, out var data))
+            {
+                // Flush the live PlayerStash SyncLists into PlayerSaveData before reading loadout.
+                // The loadout lives in netLoadoutEquip/netLoadoutBackpack SyncLists on the LobbyPlayer,
+                // NOT in PlayerSaveData until SaveInto is called.
+                if (conn.FirstObject != null)
+                {
+                    var stash = conn.FirstObject.GetComponent<PlayerStash>();
+                    if (stash != null)
+                    {
+                        stash.SaveInto(data);
+                        
+                    }
+                }
+                
+                MoveLoadoutToInRaid(data);
+                
+            }
+        }
+
+        // 2. Load the Game scene (replaces all scenes on server + clients).
+        var nm = FishNet.InstanceFinder.NetworkManager;
+        var sld = new SceneLoadData("Scene_multi") { ReplaceScenes = ReplaceOption.All };
+        nm.SceneManager.LoadGlobalScenes(sld);
+
+        // 3. Wait for the Game scene to be active, then spawn full Players for members.
+        StartCoroutine(SpawnPlayersAfterSceneLoad("Scene_multi", memberClientIds));
+    }
+
+    /// <summary>Called by MatchManager on match end. Moves in-raid→loadout (preserve config), loads Lobby scene, spawns lobby bodies.</summary>
+    public void EndMatchAndReturnToLobby()
+    {
+        // 1. For each player in the match, move in-raid → loadout (preserve their equipment/backpack
+        //    as the loadout for the next match, NOT dumped into stash).
+        var players = FindObjectsOfType<Player>();
+        foreach (var player in players)
+        {
+            if (string.IsNullOrEmpty(player.playerID)) continue;
+            SavePlayerState(player.playerID, player); // writes backpack/equipment to data
+            if (_playerDataMap.TryGetValue(player.playerID, out var data))
+                MoveInRaidToLoadout(data);
+        }
+        SaveAllData();
+
+        // 2. Collect member client IDs (for re-spawn in lobby).
+        var memberClientIds = new System.Collections.Generic.List<int>();
+        foreach (var p in players)
+        {
+            if (p.NetworkObject != null && p.NetworkObject.Owner != null)
+                memberClientIds.Add((int)p.NetworkObject.Owner.ClientId);
+        }
+
+        // 3. Tell RoomManager to restore as Gathering (not InMatch) when Lobby reloads.
+        RoomManager.SetSavedStateForLobbyReturn();
+
+        // 4. Load the Lobby scene.
+        var nm = FishNet.InstanceFinder.NetworkManager;
+        var sld = new SceneLoadData("Lobby") { ReplaceScenes = ReplaceOption.All };
+        nm.SceneManager.LoadGlobalScenes(sld);
+
+        // 5. Wait for Lobby scene, then spawn LobbyPlayers.
+        StartCoroutine(SpawnPlayersAfterSceneLoad("Lobby", memberClientIds));
+    }
+
+    private System.Collections.IEnumerator SpawnPlayersAfterSceneLoad(string sceneName, System.Collections.Generic.List<int> clientIds)
+    {
+        // Wait until the target scene is the active scene.
+        yield return new UnityEngine.WaitUntil(() => UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == sceneName);
+        yield return null; // one extra frame for scene objects to initialize
+
+        foreach (int clientId in clientIds)
+        {
+            var conn = FindConnectionByClientId(clientId);
+            if (conn == null) continue;
+            string id = _authenticator != null ? _authenticator.GetIDForConnection(conn) : null;
+            if (!string.IsNullOrEmpty(id))
+                SpawnPlayerForConnection(conn, id);
+        }
+    }
+
+    private NetworkConnection FindConnectionByClientId(int clientId)
+    {
+        var nm = FishNet.InstanceFinder.NetworkManager;
+        if (nm == null) return null;
+        foreach (var conn in nm.ServerManager.Clients.Values)
+        {
+            if ((int)conn.ClientId == clientId) return conn;
+        }
+        return null;
+    }
+
+    /// <summary>MOVE: loadoutEquip/loadoutBackpack → equipment/backpack. Clears loadout.</summary>
+    private void MoveLoadoutToInRaid(PlayerSaveData data)
+    {
+        // equipment = loadoutEquip
+        data.equipment.Clear();
+        foreach (var item in data.loadoutEquip)
+            data.equipment.Add(new InventoryItemData(item.itemID, item.count, item.slotIndex, item.ammoInMag, item.ammoReserve));
+        // backpack = loadoutBackpack
+        data.backpack.Clear();
+        foreach (var item in data.loadoutBackpack)
+            data.backpack.Add(new InventoryItemData(item.itemID, item.count, item.slotIndex, item.ammoInMag, item.ammoReserve));
+        // Clear loadout (committed to the raid)
+        data.loadoutEquip.Clear();
+        data.loadoutBackpack.Clear();
+    }
+
+    /// <summary>MOVE: equipment/backpack → loadoutEquip/loadoutBackpack. Clears in-raid.
+    /// Preserves the player's extraction-time state as their loadout for the next match.</summary>
+    private void MoveInRaidToLoadout(PlayerSaveData data)
+    {
+        // loadoutEquip = equipment (preserve slot indices)
+        data.loadoutEquip.Clear();
+        foreach (var item in data.equipment)
+            data.loadoutEquip.Add(new InventoryItemData(item.itemID, item.count, item.slotIndex, item.ammoInMag, item.ammoReserve));
+        // loadoutBackpack = backpack (preserve slot indices)
+        data.loadoutBackpack.Clear();
+        foreach (var item in data.backpack)
+            data.loadoutBackpack.Add(new InventoryItemData(item.itemID, item.count, item.slotIndex, item.ammoInMag, item.ammoReserve));
+        // Clear in-raid (moved to loadout)
+        data.equipment.Clear();
+        data.backpack.Clear();
+    }
+
+    private int FindEmptyStashSlot(PlayerSaveData data)
+    {
+        // Stash slots are 0..31. Find a slotIndex not used by any stash item.
+        var used = new System.Collections.Generic.HashSet<int>();
+        foreach (var item in data.stash) used.Add(item.slotIndex);
+        for (int i = 0; i < 32; i++) if (!used.Contains(i)) return i;
+        return -1; // stash full
     }
 
     // JSON Persistence

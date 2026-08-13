@@ -66,6 +66,11 @@ public class Player_WeaponController : NetworkBehaviour
         {
             whatIsEnemy = LayerMask.GetMask("Enemy", "Player");
         }
+
+        // Equip default weapons (primary + melee + grenade) after a short delay so
+        // PlayerInventory.OnStartClient has time to populate weaponSlots from save data.
+        // If save data already filled the slots, EquipStartingWeapon skips them.
+        Invoke(nameof(EquipStartingWeapon), .1f);
     }
 
     private void Update()
@@ -261,28 +266,31 @@ public void SpawnGrenade()
 
         if (maxSlots < 3) maxSlots = 3;
 
-        while (weaponSlots.Count < maxSlots) 
+        while (weaponSlots.Count < maxSlots)
         {
             weaponSlots.Add(null);
         }
 
-        // Only equip defaults if the slots are completely empty (e.g. fresh spawn, not loaded from save)
-        if (weaponSlots[0] == null)
-            weaponSlots[0] = new Weapon(defaultWeaponData);
-        
-        if (weaponSlots[2] == null && defaultMeleeWeaponData != null)
-        {
-            weaponSlots[2] = new Weapon(defaultMeleeWeaponData);
-        }
-
-        if (weaponSlots[3] == null && defaultGrenadeWeaponData != null)
-        {
-            weaponSlots[3] = new Weapon(defaultGrenadeWeaponData);
-        }
+        // No auto-fill of any slot — the player only has what they brought in their loadout.
+        // If all slots are empty, the player is unarmed but can still move/dodge.
 
         if (currentWeapon == null || currentWeapon.weaponData == null || string.IsNullOrEmpty(currentWeapon.weaponData.weaponName))
         {
-            EquipWeapon(0);
+            // Try to equip the first available weapon (from loadout).
+            int equipSlot = -1;
+            for (int i = 0; i < weaponSlots.Count; i++)
+            {
+                if (weaponSlots[i] != null) { equipSlot = i; break; }
+            }
+            if (equipSlot >= 0)
+            {
+                EquipWeapon(equipSlot);
+            }
+            else
+            {
+                // Unarmed: mark weapon ready so movement/dodge still works.
+                SetWeaponReady(true);
+            }
         }
     }
     public int CurrentWeaponIndex
@@ -414,8 +422,27 @@ public void SpawnGrenade()
                     return;
                 }
             }
-            // No other weapon available — leave currentWeapon holding the cleared
-            // one for v1 (documented edge case).
+            // No other weapon available — clear the weapon reference and set to unarmed.
+            currentWeapon = null;
+            SetWeaponReady(true); // Must set to true so the player isn't locked in place
+            if (player.weaponVisuals != null)
+            {
+                player.weaponVisuals.SetUnarmed();
+            }
+        }
+    }
+
+    public void ClearAllWeapons()
+    {
+        for (int i = 0; i < weaponSlots.Count; i++)
+        {
+            weaponSlots[i] = null;
+        }
+        currentWeapon = null;
+        SetWeaponReady(true);
+        if (player.weaponVisuals != null)
+        {
+            player.weaponVisuals.SetUnarmed();
         }
     }
 
@@ -463,6 +490,13 @@ public void SpawnGrenade()
         if (WeaponReady() == false)
         {
             Debug.Log("Shoot blocked: WeaponReady is false");
+            return;
+        }
+
+        // Unarmed: no weapon to shoot with, but don't crash.
+        if (currentWeapon == null)
+        {
+            isShooting = false;
             return;
         }
 
@@ -596,43 +630,52 @@ private void PerformGrenadeThrow()
     private void FireSingleBullet()
     {
         currentWeapon.bulletsInMagazine--;
-        CreateBullet(player);
 
-        if (base.IsOwner) 
+        // Owner computes the gun-point position + bullet direction locally (its aim is accurate),
+        // then sends them to the server, which forwards to other clients. The server does NOT
+        // recompute these — its local aim/weapon state for non-host owners is not updated.
+        Transform gp = GunPoint();
+        Vector3 gpPos = gp != null ? gp.position : transform.position;
+        Vector3 gpDir = BulletDirection();
+        CreateBulletAt(player, gpPos, gpDir);
+
+        if (base.IsOwner)
         {
-            CmdShoot();
+            CmdShoot(gpPos, gpDir);
         }
     }
 
-    private void CreateBullet(Player firingPlayer)
+    private void CreateBulletAt(Player firingPlayer, Vector3 gunPointPos, Vector3 bulletDir)
     {
-        GameObject newBullet = ObjectPool.instance.GetObject(bulletPrefab,GunPoint());
+        GameObject newBullet = ObjectPool.instance.GetObject(bulletPrefab, GunPoint());
 
-        newBullet.transform.rotation = Quaternion.LookRotation(GunPoint().forward);
+        newBullet.transform.position = gunPointPos;
+        newBullet.transform.rotation = Quaternion.LookRotation(bulletDir);
 
         Rigidbody rbNewBullet = newBullet.GetComponent<Rigidbody>();
 
         Bullet bulletScript = newBullet.GetComponent<Bullet>();
         bulletScript.BulletSetup(whatIsAlly,currentWeapon.bulletDamage, currentWeapon.gunDistance,bulletImpactForce, firingPlayer);
 
-
-        Vector3 bulletsDirection = currentWeapon.ApplySpread(BulletDirection());
+        Vector3 bulletsDirection = currentWeapon.ApplySpread(bulletDir);
 
         rbNewBullet.mass = REFERENCE_BULLET_SPEED / bulletSpeed;
         rbNewBullet.velocity = bulletsDirection * bulletSpeed;
     }
 
     [ServerRpc]
-    private void CmdShoot()
+    private void CmdShoot(Vector3 gunPointPos, Vector3 bulletDir)
     {
-        RpcShoot();
+        // Forward the owner-computed position + direction to other clients.
+        // Do NOT recompute on the server — its aim state for non-host owners is stale.
+        RpcShoot(gunPointPos, bulletDir);
     }
 
     [ObserversRpc(ExcludeOwner = true)]
-    private void RpcShoot()
+    private void RpcShoot(Vector3 gunPointPos, Vector3 bulletDir)
     {
         player.weaponVisuals.PlayFireAnimation();
-        CreateBullet(null);
+        CreateBulletAt(null, gunPointPos, bulletDir);
     }
 
     [ServerRpc]

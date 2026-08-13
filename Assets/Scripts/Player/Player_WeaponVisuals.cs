@@ -174,6 +174,14 @@ public void SwitchOnCurrentWeaponModel()
         }
     }
 
+    public void SetUnarmed()
+    {
+        SwitchOffWeaponModels();
+        SwitchOffBackupWeaponModels();
+        SwitchAnimationLayer(4); // 4 = MeleeHold layer, which serves as unarmed (fists)
+        EnableRigAndIK(false);
+    }
+
     private void SwitchOffBackupWeaponModels()
     {
         foreach (BackupWeaponModel backupModel in backupWeaponModels)

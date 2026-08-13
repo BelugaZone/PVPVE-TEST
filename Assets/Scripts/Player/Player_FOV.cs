@@ -194,6 +194,7 @@ public class Player_FOV : NetworkBehaviour
             foreach (Renderer r in renderers)
             {
                 if (r.gameObject.layer == LayerMask.NameToLayer("UI")) continue;
+                if (r is LineRenderer) continue; // Do not override aimLaser visibility
                 r.enabled = isVisible;
             }
             

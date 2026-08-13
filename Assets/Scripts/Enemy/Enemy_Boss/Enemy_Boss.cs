@@ -123,18 +123,26 @@ public class Enemy_Boss : Enemy
     public void ActivateFlamethrower(bool activate)
     {
         if (base.IsServer)
+        {
+            ApplyFlamethrowerState(activate);
             RpcActivateFlamethrower(activate);
+        }
     }
 
-    [ObserversRpc(ExcludeServer = false)]
+    [ObserversRpc(ExcludeServer = true)]
     private void RpcActivateFlamethrower(bool activate)
+    {
+        ApplyFlamethrowerState(activate);
+    }
+
+    private void ApplyFlamethrowerState(bool activate)
     {
         flamethrowActive = activate;
 
         if (!activate)
         {
             flamethrower.Stop();
-            SetAnimTrigger("StopFlamethrower");
+            anim.SetTrigger("StopFlamethrower");
             Debug.Log("flame stopped");
             return;
         }
@@ -161,6 +169,9 @@ public class Enemy_Boss : Enemy
     [ObserversRpc(ExcludeServer = false)]
     private void RpcActivateHummer()
     {
+        if (!base.IsServer)
+            MassDamage(damagePoints[0].position, hummerCheckRadius, hummerActiveDamage);
+
         GameObject newActivation = ObjectPool.instance.GetObject(activationPrefab, impactPoint);
         ObjectPool.instance.ReturnObject(newActivation, 1);
     }
@@ -203,6 +214,8 @@ public class Enemy_Boss : Enemy
     {
         // Visuals or physics that need to happen exactly on impact can go here
         // Currently handled partially by MassDamage physics
+        if (!base.IsServer)
+            MassDamage(impactPos, impactRadius, jumpAttackDamage);
     }
 
     private void MassDamage(Vector3 impactPoint, float impactRadius,int damage)
@@ -327,9 +340,18 @@ public class Enemy_Boss : Enemy
             Gizmos.color = Color.white;
             Gizmos.DrawWireSphere(damagePoints[0].position, hummerCheckRadius);
         }
-
-
-        
     }
+
+    [ObserversRpc(ExcludeServer = false)]
+    public void RpcEnableWeaponTrail(bool active) => bossVisuals.EnableWeaponTrail(active);
+
+    [ObserversRpc(ExcludeServer = false)]
+    public void RpcPlaceLandindZone(Vector3 target) => bossVisuals.PlaceLandindZone(target);
+
+    [ObserversRpc(ExcludeServer = false)]
+    public void RpcResetBatteries() => bossVisuals.ResetBatteries();
+
+    [ObserversRpc(ExcludeServer = false)]
+    public void RpcDischargeBatteries() => bossVisuals.DischargeBatteries();
 
 }

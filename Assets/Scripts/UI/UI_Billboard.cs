@@ -22,7 +22,7 @@ public class UI_Billboard : MonoBehaviour
                 return;
         }
 
-        // Face the camera directly
-        transform.LookAt(transform.position + camTransform.rotation * Vector3.forward, camTransform.rotation * Vector3.up);
+        // True billboard mode: match the camera's rotation exactly so the UI is perfectly flat to the screen.
+        transform.rotation = camTransform.rotation;
     }
 }

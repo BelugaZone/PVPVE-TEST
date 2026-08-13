@@ -58,6 +58,13 @@ public class UI_RoomPanel : MonoBehaviour
         leaveBtn  = CreateButton("LeaveBtn",  "退出房间", content, new Vector2(65f,   btnY), new Vector2(160f, 36));
         startBtn  = CreateButton("StartBtn",  "开始游戏", content, new Vector2(195f,  btnY), new Vector2(160f, 36));
 
+        // Hide all buttons by default — Refresh() will show the correct one based on room state.
+        // Without this, if room is null the buttons stay visible (default active) and are unresponsive.
+        createBtn.gameObject.SetActive(false);
+        joinBtn.gameObject.SetActive(false);
+        leaveBtn.gameObject.SetActive(false);
+        startBtn.gameObject.SetActive(false);
+
         createBtn.onClick.AddListener(() => { Debug.Log("[RoomPanel] CreateRoom clicked. room=" + (room==null?"NULL":room.gameObject.name)); room?.CreateRoom(); });
         joinBtn.onClick.AddListener(() => { Debug.Log("[RoomPanel] JoinRoom clicked. room=" + (room==null?"NULL":room.gameObject.name)); room?.JoinRoom(); });
         leaveBtn.onClick.AddListener(() => { Debug.Log("[RoomPanel] LeaveRoom clicked. room=" + (room==null?"NULL":room.gameObject.name)); room?.LeaveRoom(); });
@@ -68,6 +75,32 @@ public class UI_RoomPanel : MonoBehaviour
         if (room != null)
             room.OnRoomChanged += Refresh;
         Refresh();
+
+        // If room was null at Build time, retry shortly (RoomManager scene object may initialize
+        // after the LobbyPlayer spawns).
+        if (room == null)
+            StartCoroutine(RetryFindRoom());
+    }
+
+    private System.Collections.IEnumerator RetryFindRoom()
+    {
+        int attempts = 0;
+        while (room == null && attempts < 60)
+        {
+            yield return null;
+            room = RoomManager.Instance;
+            attempts++;
+        }
+        if (room != null)
+        {
+            room.OnRoomChanged += Refresh;
+            Refresh();
+            Debug.Log($"[RoomPanel] Retry found RoomManager after {attempts} frames.");
+        }
+        else
+        {
+            Debug.LogWarning("[RoomPanel] RoomManager not found after 60 frames.");
+        }
     }
 
     private void Refresh()

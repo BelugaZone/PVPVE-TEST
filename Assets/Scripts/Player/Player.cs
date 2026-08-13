@@ -44,24 +44,11 @@ public class Player : NetworkBehaviour
     {
         base.OnStartClient();
 
-        // Phase 0: the full Player prefab is spawned in the Lobby scene, but its gameplay
-        // scripts (Aim/Movement/WeaponVisuals/FOV/Interaction) depend on Game-scene context
-        // (camera, weapon models, etc.) that does not exist in the Lobby. Disable those
-        // components so they don't run per-frame Update/LateUpdate and NRE. Inventory and
-        // Health are kept (Phase 1 will replace this with a dedicated stripped lobby body).
-        bool inLobby = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Lobby";
-        if (inLobby)
-        {
-            DisableBehaviour(aim);
-            DisableBehaviour(movement);
-            DisableBehaviour(weaponVisuals);
-            DisableBehaviour(fov);
-            DisableBehaviour(interaction);
-            // weapon (Player_WeaponController) is needed by inventory init, but its Shoot/
-            // camera calls are gated; leave it enabled, its per-frame work only runs when
-            // isShooting/isMeleeAttackReady are set, which won't happen in the lobby.
-            if (anim != null) anim.enabled = false;
-        }
+        // Phase 0's lobby-scene gameplay-disable guard has been removed. Since Phase 1,
+        // the full Player prefab is only spawned in the Game scene (ServerDataManager spawns
+        // LobbyPlayer in the Lobby). The old guard checked GetActiveScene().name on the CLIENT,
+        // but the client's active scene may still be "Lobby" during the scene-transition window
+        // (server loads Game first, client follows), which falsely disabled gameplay components.
 
         if (base.IsOwner)
         {

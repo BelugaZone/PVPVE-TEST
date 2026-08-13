@@ -1,18 +1,56 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
 
 // Procedural placeholder sprites (no external art). Colored by type with a letter badge
 // baked into the texture. Cached statically for the session.
+// Real icons in Assets/UI/icon_set are used when available (loaded by weaponName/itemId).
 public static class UI_PlaceholderIcons
 {
     private static Sprite _white;
-    private static readonly System.Collections.Generic.Dictionary<WeaponType, Sprite> _weapon = new System.Collections.Generic.Dictionary<WeaponType, Sprite>();
-    private static readonly System.Collections.Generic.Dictionary<ItemType, Sprite> _item = new System.Collections.Generic.Dictionary<ItemType, Sprite>();
+    private static readonly Dictionary<WeaponType, Sprite> _weapon = new Dictionary<WeaponType, Sprite>();
+    private static readonly Dictionary<ItemType, Sprite> _item = new Dictionary<ItemType, Sprite>();
+    private static readonly Dictionary<string, Sprite> _customIcons = new Dictionary<string, Sprite>();
+
+    // Map weaponName / itemId → icon file name in Assets/UI/icon_set.
+    private static readonly Dictionary<string, string> _iconFileMap = new Dictionary<string, string>
+    {
+        { "Heaven 567", "Heaven" },
+        { "Blaster K-567", "Blaste" },
+        { "Bolt R-7", "Bolt" },
+        { "Stinger 97", "Stinger" },
+        { "Shotgun G7", "Shotgun" },
+        { "Melee", "Melee" },
+        { "Grenade", "Grenade" },
+        { "medkit", "medkit" },
+        { "rifle_ammo", "rifle_ammo" },
+        { "core", "core" },
+    };
+
+    private static Sprite LoadCustomIcon(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        if (_customIcons.TryGetValue(id, out Sprite cached)) return cached;
+        if (_iconFileMap.TryGetValue(id, out string fileName))
+        {
+            var sprite = Resources.Load<Sprite>($"icon_set/{fileName}");
+            _customIcons[id] = sprite;
+            return sprite;
+        }
+        _customIcons[id] = null;
+        return null;
+    }
 
     public static Sprite White()
     {
         if (_white == null) _white = Make(Color.white, null);
         return _white;
+    }
+
+    /// <summary>Load a custom icon by itemId or weaponName. Returns null if not found.</summary>
+    public static Sprite GetCustomIcon(string id)
+    {
+        return LoadCustomIcon(id);
     }
 
     public static Sprite Get(WeaponType t)
@@ -57,11 +95,23 @@ public static class UI_PlaceholderIcons
         return s;
     }
 
-    // For an InventoryItem: prefer its ItemData.icon if set, else procedural by type.
+    // For an InventoryItem: prefer real icon (by itemId/weaponName), else ItemData.icon, else procedural.
     public static Sprite ForItem(InventoryItem item)
     {
         if (item == null) return White();
+
+        // Try custom icon by itemId or weaponName.
+        string id = item.data != null ? item.data.itemId : (item.WeaponData != null ? item.WeaponData.weaponName : null);
+        if (!string.IsNullOrEmpty(id))
+        {
+            var custom = LoadCustomIcon(id);
+            if (custom != null) return custom;
+        }
+
+        // Fall back to ItemData.icon if set.
         if (item.data != null && item.data.icon != null) return item.data.icon;
+
+        // Last resort: procedural by type.
         if (item.IsWeapon) return Get(item.WeaponData.weaponType);
         return Get(item.ItemType);
     }

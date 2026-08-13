@@ -91,15 +91,15 @@ public class PlayerStash : NetworkBehaviour
 
     // --- Server initialization ---
 
-    public void ServerInitialize(PlayerSaveData data, DefaultLoadout defaultLoadout)
+    public void ServerInitialize(PlayerSaveData data, DefaultLoadout defaultLoadout, bool isNewProfile)
     {
         InitList(netStash, StashCapacity);
         InitList(netLoadoutEquip, LoadoutEquipCount);
         InitList(netLoadoutBackpack, LoadoutBackpackCapacity);
 
-        if (data.stash.Count == 0 && defaultLoadout != null)
+        if (isNewProfile && defaultLoadout != null)
         {
-            // New player: seed stash from DefaultLoadout.
+            // New player: seed stash from DefaultLoadout. Loadout starts empty.
             int idx = 0;
             foreach (var entry in defaultLoadout.entries)
             {
@@ -110,6 +110,8 @@ public class PlayerStash : NetworkBehaviour
         }
         else
         {
+            // Returning player: restore stash + loadout from save data.
+            // Stash may be empty (player took everything) — that's fine, don't re-seed.
             foreach (var item in data.stash)
             {
                 if (item.slotIndex >= 0 && item.slotIndex < StashCapacity)
@@ -159,7 +161,6 @@ public class PlayerStash : NetworkBehaviour
     public IReadOnlyList<InventoryItem> GetStash() => stash;
     public InventoryItem GetLoadoutEquipment(int slot) => (slot >= 0 && slot < LoadoutEquipCount) ? loadoutEquip[slot] : null;
     public IReadOnlyList<InventoryItem> GetLoadoutBackpack() => loadoutBackpack;
-    public int FirstEmptyStashSlot() { for (int i = 0; i < stash.Count; i++) if (stash[i] == null) return i; return -1; }
 
     // --- Client drag requests (mirror PlayerInventory's pattern) ---
 
@@ -200,11 +201,16 @@ public class PlayerStash : NetworkBehaviour
     private void CmdMoveStashToLoadoutBackpack(int stashIndex, int backpackIndex)
     {
         if (stashIndex < 0 || stashIndex >= netStash.Count) return;
-        if (backpackIndex < 0 || backpackIndex >= netLoadoutBackpack.Count) return;
         var incoming = netStash[stashIndex];
         if (string.IsNullOrEmpty(incoming.itemId)) return;
-        var displaced = netLoadoutBackpack[backpackIndex];
-        netLoadoutBackpack[backpackIndex] = incoming;
+        
+        int target = backpackIndex >= 0 && backpackIndex < netLoadoutBackpack.Count && string.IsNullOrEmpty(netLoadoutBackpack[backpackIndex].itemId)
+            ? backpackIndex
+            : FirstEmptyLoadoutBackpackSlot();
+        if (target < 0) return;
+
+        var displaced = netLoadoutBackpack[target];
+        netLoadoutBackpack[target] = incoming;
         netStash[stashIndex] = displaced;
     }
 
@@ -212,11 +218,16 @@ public class PlayerStash : NetworkBehaviour
     private void CmdMoveLoadoutEquipToStash(int equipSlot, int stashIndex)
     {
         if (equipSlot < 0 || equipSlot >= LoadoutEquipCount) return;
-        if (stashIndex < 0 || stashIndex >= netStash.Count) return;
         var incoming = netLoadoutEquip[equipSlot];
         if (string.IsNullOrEmpty(incoming.itemId)) return;
-        var displaced = netStash[stashIndex];
-        netStash[stashIndex] = incoming;
+
+        int target = stashIndex >= 0 && stashIndex < netStash.Count && string.IsNullOrEmpty(netStash[stashIndex].itemId)
+            ? stashIndex
+            : FirstEmptyStashSlot();
+        if (target < 0) return;
+
+        var displaced = netStash[target];
+        netStash[target] = incoming;
         netLoadoutEquip[equipSlot] = displaced;
     }
 
@@ -224,12 +235,31 @@ public class PlayerStash : NetworkBehaviour
     private void CmdMoveLoadoutBackpackToStash(int backpackIndex, int stashIndex)
     {
         if (backpackIndex < 0 || backpackIndex >= netLoadoutBackpack.Count) return;
-        if (stashIndex < 0 || stashIndex >= netStash.Count) return;
         var incoming = netLoadoutBackpack[backpackIndex];
         if (string.IsNullOrEmpty(incoming.itemId)) return;
-        var displaced = netStash[stashIndex];
-        netStash[stashIndex] = incoming;
+
+        int target = stashIndex >= 0 && stashIndex < netStash.Count && string.IsNullOrEmpty(netStash[stashIndex].itemId)
+            ? stashIndex
+            : FirstEmptyStashSlot();
+        if (target < 0) return;
+
+        var displaced = netStash[target];
+        netStash[target] = incoming;
         netLoadoutBackpack[backpackIndex] = displaced;
+    }
+
+    public int FirstEmptyStashSlot()
+    {
+        for (int i = 0; i < netStash.Count; i++)
+            if (string.IsNullOrEmpty(netStash[i].itemId)) return i;
+        return -1;
+    }
+
+    public int FirstEmptyLoadoutBackpackSlot()
+    {
+        for (int i = 0; i < netLoadoutBackpack.Count; i++)
+            if (string.IsNullOrEmpty(netLoadoutBackpack[i].itemId)) return i;
+        return -1;
     }
 
     [ServerRpc]
